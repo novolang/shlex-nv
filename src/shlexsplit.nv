@@ -1,0 +1,224 @@
+// shlexsplit.nv — a command line into words, by the Shell Command
+// Language's rules and no others.
+//
+// WHAT THE RULES ARE
+//
+// POSIX.1-2017, Shell Command Language, section 2.2 defines quoting
+// with four characters and section 2.3 delimits words with blanks.
+// That is the whole of it:
+//
+//   \       the next character is literal.  At the end of a line it is
+//           a line continuation and both characters disappear.
+//   '...'   every character up to the next `'` is literal.  There is
+//           no escape inside, so a single quote cannot appear in one.
+//   "..."   every character up to the next `"` is literal, except that
+//           a backslash still escapes `$`, a backtick, `"`, `\` and a
+//           newline.
+//   #       when it begins a word, the rest of the line is a comment.
+//
+// Everything else is an ordinary character, including `$`, a backtick,
+// `~`, `*` and `?`.
+//
+// SPLITTING IS NOT EXPANDING, AND THAT IS THE DIVIDING LINE
+//
+// A shell splits a line into words and then expands them: it
+// substitutes parameters, runs command substitutions, expands a tilde
+// into a home directory and a glob into file names.  Every one of
+// those reads something — the environment, a process, a directory —
+// and this package reads nothing.
+//
+// So `echo $HOME` splits into `echo` and `$HOME`, with the dollar sign
+// as a character.  That is exactly what a POSIX shell's word splitting
+// produces, before the expansion step that this package does not have.
+// `would_expand` is how a caller finds out that a word it is holding
+// would mean more to a shell than it means here — which is the
+// question behind "is it safe to pass this to `sh -c`", and the answer
+// is almost always no.
+
+use shlexerror
+
+// One word, with where it came from.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     match shlexsplit.words("echo hi", shlexsplit.options())
+//         Ok(found)  => println(found[0].text)
+//         Err(fault) => println(fault.message())
+// ```
+pub struct ShlexWord
+    // The word with its quoting removed: what a shell would pass as
+    // one argument, before any expansion.
+    text: Str
+    // The byte offset in the line where the word starts, including its
+    // opening quote.
+    start: Int
+    // The byte offset just past where it ends, including its closing
+    // quote.  An editor highlighting the word a cursor is in needs
+    // both.
+    end: Int
+    // Whether any part of the word was quoted or escaped.  A word that
+    // was quoted is a word the shell would not have expanded, and a
+    // caller deciding whether a user meant a glob or a file called
+    // `*` is asking exactly this.
+    quoted: Bool
+
+// What the splitter treats as a comment.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     println("${shlexsplit.options().comments}")
+// ```
+pub struct ShlexOptions
+    // Whether a `#` beginning a word starts a comment that runs to the
+    // end of the line.  Off by default: a command line a user typed
+    // into a prompt has no comments, and a `#` in it is a character in
+    // a file name more often than not.  A configuration file that
+    // holds command lines turns it on.
+    comments: Bool
+
+// The defaults: no comments.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     println("${shlexsplit.options().comments}")
+// ```
+pub fn options() -> ShlexOptions []
+    todo("shlex-nv.shlexsplit.options")
+
+// The same options with `#` starting a comment.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     println("${shlexsplit.with_comments(shlexsplit.options()).comments}")
+// ```
+pub fn with_comments(o: ShlexOptions) -> ShlexOptions []
+    todo("shlex-nv.shlexsplit.with_comments")
+
+// A line into words, quoting removed.
+//
+// The call almost every caller wants.  A line holding a bash-only form
+// is refused rather than split by the wrong rules — see `shlexbash`.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     match shlexsplit.split("cp -r 'my files' /tmp")
+//         Ok(argv)   => println("${list.len(argv)} word(s)")
+//         Err(fault) => println(fault.message())
+// ```
+pub fn split(line: Str) -> Result<[Str], shlexerror.ShlexFault> []
+    todo("shlex-nv.shlexsplit.split")
+
+// The same, under options.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     let o = shlexsplit.with_comments(shlexsplit.options())
+//     match shlexsplit.split_with("ls -l  # a comment", o)
+//         Ok(argv)   => println("${list.len(argv)} word(s)")
+//         Err(fault) => println(fault.message())
+// ```
+pub fn split_with(line: Str, o: ShlexOptions) -> Result<[Str], shlexerror.ShlexFault> []
+    todo("shlex-nv.shlexsplit.split_with")
+
+// The words with their offsets and whether each was quoted.
+//
+// What `split` answers, plus everything an editor or a diagnostic
+// needs: where to put a caret, which word a cursor is in, and whether
+// the user wrote quotes.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     match shlexsplit.words("cp 'a b' c", shlexsplit.options())
+//         Ok(found)  => println("${found[1].start}")
+//         Err(fault) => println(fault.message())
+// ```
+pub fn words(line: Str, o: ShlexOptions) -> Result<[ShlexWord], shlexerror.ShlexFault> []
+    todo("shlex-nv.shlexsplit.words")
+
+// Whether a line is finished, so that splitting it would not answer an
+// incomplete fault.
+//
+// The question a terminal asks before it decides whether to print its
+// secondary prompt.  A line ending inside a quote or with a dangling
+// backslash is not finished; a line holding a bash-only form is
+// finished and will still be refused, which is why this is not the
+// same as "will split succeed".
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     println("${shlexsplit.is_complete("echo 'hi")}")
+//     println("${shlexsplit.is_complete("echo hi")}")
+// ```
+pub fn is_complete(line: Str) -> Bool []
+    todo("shlex-nv.shlexsplit.is_complete")
+
+// The first word of a line, or `None` when it has none.
+//
+// The program name, without splitting the rest.  A launcher deciding
+// which handler to use, and a history search, both stop here.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     match shlexsplit.first_word("git commit -m 'a message'")
+//         Some(program) => println(program)
+//         None          => println("an empty line")
+// ```
+pub fn first_word(line: Str) -> ?Str []
+    todo("shlex-nv.shlexsplit.first_word")
+
+// Whether a word would mean more to a shell than it means here.
+//
+// True when the word holds an unquoted `$`, a backtick, a `*`, a `?`,
+// a `[`, or begins with a `~`.  Every one of those is expanded by a
+// shell after the splitting this package does, so a word that answers
+// true is a word whose meaning changes the moment it reaches one.
+//
+// The question behind "may I pass this to a shell": a caller building
+// a command line for `sh -c` uses `shlexquote.quote` and does not need
+// to ask, and a caller that has a word from somewhere else and wants
+// to know whether it is inert asks this.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     println("${shlexsplit.would_expand("*.txt")}")
+//     println("${shlexsplit.would_expand("/home/ada")}")
+// ```
+pub fn would_expand(word: Str) -> Bool []
+    todo("shlex-nv.shlexsplit.would_expand")
+
+// Where a comment begins in a line, or `-1`.
+//
+// The offset of a `#` that begins a word, found under the same rules
+// the splitter uses — so a `#` inside quotes, or in the middle of a
+// word, is not one.  A configuration reader that wants to keep the
+// comment rather than drop it needs the position.
+//
+// ```novo
+// use shlexsplit
+//
+// fn main() [io]
+//     println("${shlexsplit.comment_at("ls -l # why")}")
+//     println("${shlexsplit.comment_at("grep '#' file")}")
+// ```
+pub fn comment_at(line: Str) -> Int []
+    todo("shlex-nv.shlexsplit.comment_at")

@@ -1,0 +1,142 @@
+// shlexquote.nv — a word a shell reads back as the word it was.
+//
+// ONE QUOTING STRATEGY, AND IT IS THE BORING ONE
+//
+// A word that needs quoting is wrapped in single quotes, and every
+// single quote inside it is written `'\''` — close the string, an
+// escaped quote, open it again.  That is what Python's `shlex.quote`
+// and the Rust crate `shlex` both do, and the reason is that inside a
+// single-quoted string the Shell Command Language gives NO character a
+// special meaning at all (section 2.2.2).  There is nothing to get
+// wrong: no escape to forget, no list of metacharacters to keep up to
+// date as shells grow new ones, and no locale in which a byte becomes
+// special.
+//
+// A double-quoted strategy would have to escape `$`, a backtick, `"`
+// and `\`, and a strategy that escaped each metacharacter with a
+// backslash would have to know every one of them.  Both are a list
+// somebody has to maintain against every shell in existence.  This is
+// not.
+//
+// WHAT QUOTING DOES NOT PROTECT AGAINST
+//
+// Quoting makes a string one word.  It does not make that word
+// harmless.  `quote("-rf")` is `-rf`, which is a perfectly quoted
+// argument that still means `-rf` to the program receiving it, and
+// `quote("--output=/etc/passwd")` is the same story.  `is_option_like`
+// is the function that says so; a caller passing a file name from
+// somewhere else into a command line checks it and prefixes `./`, the
+// way every careful shell script does.
+
+use shlexerror
+
+// A word a shell will read back unchanged.
+//
+// Returned as it stands when nothing in it needs quoting, so an
+// ordinary command line stays readable.  An empty string becomes
+// `''`, because nothing is not a word.
+//
+// A NUL byte is refused: no shell can carry one in an argument, and
+// dropping it would produce a command line other than the one that was
+// asked for.
+//
+// ```novo
+// use shlexquote
+//
+// fn main() [io]
+//     match shlexquote.quote("my files")
+//         Ok(word)   => println(word)
+//         Err(fault) => println(fault.message())
+// ```
+pub fn quote(word: Str) -> Result<Str, shlexerror.ShlexFault> []
+    todo("shlex-nv.shlexquote.quote")
+
+// The same word, appended to a buffer the caller owns.
+//
+// For a caller assembling a long command line: the buffer is reused
+// and no intermediate string is built per word.
+//
+// ```novo
+// use shlexquote
+//
+// fn main() [io]
+//     match shlexquote.quote_into([], "my files")
+//         Ok(buffer) => println("${list.len(buffer)} byte(s)")
+//         Err(fault) => println(fault.message())
+// ```
+pub fn quote_into(out: [u8], word: Str) -> Result<[u8], shlexerror.ShlexFault> []
+    todo("shlex-nv.shlexquote.quote_into")
+
+// A command line from a list of words, each quoted, joined with single
+// spaces.
+//
+// `shlexsplit.split(shlexquote.join(argv))` answers `argv` again, for
+// every list of words that holds no NUL byte.  That round trip is what
+// this function is for and what its tests assert.
+//
+// ```novo
+// use shlexquote
+//
+// fn main() [io]
+//     match shlexquote.join(["cp", "-r", "my files", "/tmp"])
+//         Ok(line)   => println(line)
+//         Err(fault) => println(fault.message())
+// ```
+pub fn join(words: [Str]) -> Result<Str, shlexerror.ShlexFault> []
+    todo("shlex-nv.shlexquote.join")
+
+// Whether a word would change meaning if it were written into a
+// command line as it stands.
+//
+// True for a word holding a blank, a quote, a backslash, a shell
+// metacharacter, or a byte below a space — and for the empty string,
+// which would vanish.  False for the words a shell would pass through:
+// letters, digits, and the handful of punctuation characters that mean
+// nothing to it.
+//
+// `quote` calls this and returns the word untouched when it is false,
+// which is why an ordinary command line comes back readable.
+//
+// ```novo
+// use shlexquote
+//
+// fn main() [io]
+//     println("${shlexquote.needs_quoting("my files")}")
+//     println("${shlexquote.needs_quoting("/tmp/a.txt")}")
+// ```
+pub fn needs_quoting(word: Str) -> Bool []
+    todo("shlex-nv.shlexquote.needs_quoting")
+
+// Whether a word would be read as an option by the program it is
+// passed to.
+//
+// True when it begins with `-`.  Quoting does not change this and
+// cannot: `-rf` is one word either way, and the program on the other
+// end is the one that decides what a leading dash means.
+//
+// A caller that has a file name from somewhere else prefixes `./` or
+// puts `--` in front of the operands, which is what the answer is for.
+//
+// ```novo
+// use shlexquote
+//
+// fn main() [io]
+//     println("${shlexquote.is_option_like("-rf")}")
+//     println("${shlexquote.is_option_like("./-rf")}")
+// ```
+pub fn is_option_like(word: Str) -> Bool []
+    todo("shlex-nv.shlexquote.is_option_like")
+
+// The offset of the first NUL byte in a word, or `-1`.
+//
+// The one thing `quote` refuses, offered on its own so a caller can
+// check a string it is about to build a command line out of.
+//
+// ```novo
+// use shlexquote
+//
+// fn main() [io]
+//     println("${shlexquote.first_nul("plain text")}")
+// ```
+pub fn first_nul(word: Str) -> Int []
+    todo("shlex-nv.shlexquote.first_nul")

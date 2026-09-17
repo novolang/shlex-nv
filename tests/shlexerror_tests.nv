@@ -1,0 +1,58 @@
+// shlexerror_tests.nv — the division between a line that needs more
+// and a line that needs fixing.
+//
+// RED ON PURPOSE: every assertion reaches `not implemented:
+// shlex-nv.shlexerror.<fn>`.  What is asserted is that
+// `is_incomplete` separates the three unfinished forms from the two
+// finished ones, and that every fault knows where it is.
+
+use std.test
+use shlexerror
+
+@test
+fn test_three_faults_mean_read_more_and_two_mean_stop() [io]
+    // A terminal continues on the first set and refuses on the second.
+    test.case("an unclosed quote or a dangling backslash")
+    test.assert(shlexerror.is_incomplete(ShlexUnterminatedSingle(5)))
+    test.assert(shlexerror.is_incomplete(ShlexUnterminatedDouble(5)))
+    test.assert(shlexerror.is_incomplete(ShlexDanglingEscape(7)))
+
+    test.case("and the two that reading more would not fix")
+    test.assert(not shlexerror.is_incomplete(ShlexBashOnly(ShlexAnsiCQuote, 5)))
+    test.assert(not shlexerror.is_incomplete(ShlexNulByte(1)))
+
+@test
+fn test_every_fault_knows_where_it_is() [io]
+    // A caller pointing a caret at a line never has to ask whether
+    // this fault has a position.
+    test.case("the offset each arm carries")
+    test.assert(shlexerror.offset(ShlexUnterminatedSingle(5)) == 5)
+    test.assert(shlexerror.offset(ShlexUnterminatedDouble(0)) == 0)
+    test.assert(shlexerror.offset(ShlexDanglingEscape(7)) == 7)
+    test.assert(shlexerror.offset(ShlexBashOnly(ShlexProcessSub, 4)) == 4)
+    test.assert(shlexerror.offset(ShlexNulByte(1)) == 1)
+
+@test
+fn test_a_terminal_can_show_what_it_is_waiting_for() [io]
+    // What goes in a secondary prompt.
+    test.case("the character that would close the construct")
+    test.assert(shlexerror.waiting_for(ShlexUnterminatedSingle(5)) == "'")
+    test.assert(shlexerror.waiting_for(ShlexUnterminatedDouble(5)) == "\"")
+    test.assert(shlexerror.waiting_for(ShlexDanglingEscape(7)) == "\\")
+
+    test.case("and nothing for the faults that are not waiting")
+    test.assert(shlexerror.waiting_for(ShlexNulByte(1)) == "")
+    test.assert(shlexerror.waiting_for(ShlexBashOnly(ShlexExtGlob, 3)) == "")
+
+@test
+fn test_the_code_is_stable_and_the_message_says_what_happened() [io]
+    test.case("one short code per arm, safe as a metric label")
+    test.assert(shlexerror.code(ShlexUnterminatedSingle(5)) == "unterminated_single")
+    test.assert(shlexerror.code(ShlexUnterminatedDouble(5)) == "unterminated_double")
+    test.assert(shlexerror.code(ShlexDanglingEscape(7)) == "dangling_escape")
+    test.assert(shlexerror.code(ShlexBashOnly(ShlexAnsiCQuote, 5)) == "bash_only")
+    test.assert(shlexerror.code(ShlexNulByte(1)) == "nul_byte")
+
+    test.case("and a message for a log")
+    test.assert(str.len(ShlexUnterminatedSingle(5).message()) > 0)
+    test.assert(str.len(ShlexBashOnly(ShlexProcessSub, 5).message()) > 0)

@@ -1,0 +1,43 @@
+[package]
+name        = "shlex-nv"
+version     = "0.0.1"
+description = "POSIX shell words: splitting a command line by the quoting rules of the Shell Command Language — backslash, single quotes, double quotes and comments — quoting a word so a shell reads it back unchanged, joining a command line, and the bash-only forms named and refused rather than split by the wrong rules."
+license     = "Apache-2.0"
+
+# An INTERFACE release: every `pub fn` body is a `todo()`, so the
+# signatures and the effect rows are published and nothing is
+# implemented.  `novo pkg publish` recognises the shape and requires
+# both the draft stability and the 0.0.x version; the first
+# implementation is the 0.1.0 published over it.
+stability   = "draft"
+
+# `core`.  Splitting and quoting are arithmetic over a string the
+# caller already holds.  Nothing here starts a process, reads an
+# environment variable or expands anything: the words this package
+# produces are the words a shell would have, before any expansion, and
+# performing one would be the caller's `[io]` rather than this
+# package's.
+layer       = "core"
+
+category    = "tooling"
+
+tags        = ["shlex", "shell", "posix", "quoting", "command-line", "argv", "split", "tooling"]
+repository  = "https://github.com/novolang/shlex-nv"
+maintainers = ["novo-lang"]
+novo        = ">= 0.9.0"
+
+# A library: no `main`, so `novo pkg build` type-checks and
+# effect-checks every module under `src/` and writes no binary.
+
+[docs.pages]
+"README.md" = "POSIX shell words, and the bash forms that are refused"
+
+[dependencies]
+# NONE, AND THE ABSENCE IS A FINDING RATHER THAN AN OVERSIGHT.  The
+# obvious dependency would be a Unicode table, and the Shell Command
+# Language does not need one: section 2.2 defines quoting over four
+# ASCII characters — backslash, single quote, double quote and hash —
+# and section 2.3 delimits words on the blanks named in IFS, whose
+# default is space, tab and newline.  Every other byte, including every
+# byte of a multi-byte character, is carried through untouched, so a
+# UTF-8 argument survives without anything here knowing what UTF-8 is.

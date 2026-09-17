@@ -1,0 +1,128 @@
+// shlexquote_tests.nv — the round trip, and the thing quoting does not
+// do.
+//
+// RED ON PURPOSE: every assertion reaches `not implemented:
+// shlex-nv.shlexquote.<fn>`.  What is asserted is that a word survives
+// being quoted and split again, that an ordinary word is left alone,
+// and that a quoted option is still an option.
+
+use std.test
+use shlexquote
+use shlexsplit
+use shlexerror
+
+@test
+fn test_a_word_that_needs_nothing_is_left_alone() [io]
+    // An ordinary command line comes back readable, which is the
+    // whole reason `needs_quoting` exists.
+    test.case("letters, digits and the harmless punctuation")
+    test.assert(not shlexquote.needs_quoting("/tmp/a.txt"))
+    test.assert(not shlexquote.needs_quoting("--colour=always"))
+    test.assert(not shlexquote.needs_quoting("v1.2.3"))
+
+    test.case("so quote hands them back unchanged")
+    match shlexquote.quote("/tmp/a.txt")
+        Ok(word)   => test.assert(word == "/tmp/a.txt")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("a blank, a quote or a metacharacter needs quoting")
+    test.assert(shlexquote.needs_quoting("my files"))
+    test.assert(shlexquote.needs_quoting("it's"))
+    test.assert(shlexquote.needs_quoting("a*b"))
+    test.assert(shlexquote.needs_quoting("a;b"))
+
+    test.case("and so does the empty string, because otherwise it vanishes")
+    test.assert(shlexquote.needs_quoting(""))
+    match shlexquote.quote("")
+        Ok(word)   => test.assert(word == "''")
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_a_single_quote_inside_a_word_is_written_the_only_way_there_is() [io]
+    // Close the string, escape one quote, open it again.  Inside a
+    // single-quoted string POSIX section 2.2.2 gives no character a
+    // special meaning, so there is nothing else to get right.
+    test.case("the classic case")
+    match shlexquote.quote("it's")
+        Ok(word)   => test.assert(word == "'it'\\''s'")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and it survives being split again")
+    match shlexquote.quote("it's")
+        Ok(word)   =>
+            match shlexsplit.split(word)
+                Ok(argv)   => test.assert(argv[0] == "it's")
+                Err(fault) => test.fail(fault.message())
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_join_and_split_are_inverses() [io]
+    // The property this package exists for: a list of words becomes a
+    // command line and comes back the same list.
+    let argv = ["cp", "-r", "my files", "it's here", "a*b", "", "--flag=a b"]
+
+    test.case("the command line splits back into the words it was built from")
+    match shlexquote.join(argv)
+        Ok(line)   =>
+            match shlexsplit.split(line)
+                Ok(back)   =>
+                    test.assert(list.len(back) == list.len(argv))
+                    test.assert(back[2] == "my files")
+                    test.assert(back[3] == "it's here")
+                    test.assert(back[4] == "a*b")
+                    test.assert(back[5] == "")
+                    test.assert(back[6] == "--flag=a b")
+                Err(fault) => test.fail(fault.message())
+        Err(fault) => test.fail(fault.message())
+
+    test.case("an empty list is an empty line")
+    match shlexquote.join([])
+        Ok(line)   => test.assert(line == "")
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_a_word_can_be_appended_to_a_buffer_the_caller_owns() [io]
+    // For a caller assembling a long command line without building an
+    // intermediate string per word.
+    test.case("the buffer grows by the quoted word")
+    match shlexquote.quote_into([], "my files")
+        Ok(buffer) => test.assert(list.len(buffer) == 10)
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_a_nul_byte_is_refused_because_no_shell_can_carry_one() [io]
+    // Dropping it would produce a command line other than the one that
+    // was asked for.
+    let word = "a\u{0}b"
+
+    test.case("the quoter says where it is")
+    test.assert(shlexquote.first_nul(word) == 1)
+    test.assert(shlexquote.first_nul("plain text") == 0 - 1)
+
+    test.case("and refuses the word rather than dropping the byte")
+    match shlexquote.quote(word)
+        Ok(_)      => test.fail("no shell argument can hold a NUL")
+        Err(fault) =>
+            test.assert(shlexerror.code(fault) == "nul_byte")
+            test.assert(shlexerror.offset(fault) == 1)
+
+    test.case("which is not an unfinished line — reading more would not help")
+    test.assert(not shlexerror.is_incomplete(ShlexNulByte(1)))
+
+@test
+fn test_quoting_makes_a_word_and_not_a_harmless_word() [io]
+    // `quote("-rf")` is `-rf`, and the program on the other end is the
+    // one that decides what a leading dash means.
+    test.case("an option-looking word is quoted perfectly and still an option")
+    match shlexquote.quote("-rf")
+        Ok(word)   =>
+            test.assert(word == "-rf")
+            test.assert(shlexquote.is_option_like(word))
+        Err(fault) => test.fail(fault.message())
+
+    test.case("the same for a long option carrying a path")
+    test.assert(shlexquote.is_option_like("--output=/etc/passwd"))
+
+    test.case("and the fix is the caller's, which is why the question is public")
+    test.assert(not shlexquote.is_option_like("./-rf"))
+    test.assert(not shlexquote.is_option_like("notes.txt"))

@@ -1,0 +1,151 @@
+// shlexbash.nv — the forms bash has and the Shell Command Language
+// does not, named one by one.
+//
+// WHY A SPLITTER HAS TO KNOW ABOUT THEM AT ALL
+//
+// Every form here is a construct bash splits into words DIFFERENTLY
+// from the way the POSIX rules split it.  `$'a b'` is one word in bash
+// and two under POSIX, because POSIX has no `$'...'` quote: the `$` is
+// an ordinary character and `'a b'` is a single-quoted string, so the
+// line reads as `$a` and `b`.  `<(sort f)` is one word in bash and two
+// under POSIX.
+//
+// A splitter that applied the POSIX rules to those lines would not
+// fail.  It would answer, and the answer would be wrong, and the
+// program using it would run a command nobody wrote.  So each of them
+// is detected and refused by name, with the bash spelling in the
+// message, which is the one answer a caller can do something about.
+//
+// THIS IS NOT A LIST OF EVERYTHING BASH ADDS
+//
+// It is the list of things that change WORD SPLITTING.  Bash's
+// operators — `&>`, `|&`, `<<<`, `;;` — are not words at all, and a
+// caller building a command line is not producing them.  They are
+// named in the README as outside this package rather than refused
+// here, because refusing a string this package was never asked to
+// split would refuse a program's own data.
+
+// A construct bash splits differently from the Shell Command Language.
+//
+// ```novo
+// use shlexbash
+//
+// fn main() [io]
+//     println(shlexbash.form_name(ShlexAnsiCQuote))
+// ```
+pub enum ShlexBashForm
+    // `$'...'`, ANSI-C quoting: bash reads the body with C escape
+    // sequences and strips the `$`.  Under POSIX the `$` is a literal
+    // character and the quotes are an ordinary single-quoted string,
+    // so `$'a\tb'` is the four characters `$a\tb` here and a tab there.
+    ShlexAnsiCQuote
+    // `$"..."`, locale translation: bash looks the body up in a
+    // message catalogue and strips the `$`.  Under POSIX the `$` is
+    // literal, so the word keeps it.
+    ShlexLocaleQuote
+    // `<(...)` and `>(...)`, process substitution: bash runs the
+    // command and substitutes a file name, as ONE word.  Under POSIX
+    // the parentheses are ordinary characters and the blanks inside
+    // split the line.
+    ShlexProcessSub
+    // `{a,b}` and `{1..9}`, brace expansion: bash turns one word into
+    // several before anything else happens.  Under POSIX braces are
+    // ordinary characters and the word stays one word.
+    ShlexBraceExpansion
+    // `(( ))` and `[[ ]]`, the arithmetic and conditional commands:
+    // bash parses the body by rules of its own, in which blanks and
+    // quotes do not mean what they mean in a command line.
+    ShlexCompoundCommand
+    // `?(...)`, `*(...)`, `+(...)`, `@(...)` and `!(...)`, extended
+    // globs: one word in bash, several under POSIX when the body holds
+    // a blank.
+    ShlexExtGlob
+
+// The form's name, as a message says it: `"$'...' (ANSI-C quoting)"`
+// and the rest.
+//
+// ```novo
+// use shlexbash
+//
+// fn main() [io]
+//     println(shlexbash.form_name(ShlexProcessSub))
+// ```
+pub fn form_name(f: ShlexBashForm) -> Str []
+    todo("shlex-nv.shlexbash.form_name")
+
+// A short stable code for a log or a metric label: `"ansi_c_quote"`,
+// `"process_sub"`, and the rest.
+//
+// ```novo
+// use shlexbash
+//
+// fn main() [io]
+//     println(shlexbash.form_code(ShlexBraceExpansion))
+// ```
+pub fn form_code(f: ShlexBashForm) -> Str []
+    todo("shlex-nv.shlexbash.form_code")
+
+// What the two readings of this form disagree about, in one sentence.
+//
+// The message worth showing a caller: not that the form is
+// unsupported, but that bash and POSIX would split the line into
+// different words, which is why answering either would be a guess.
+//
+// ```novo
+// use shlexbash
+//
+// fn main() [io]
+//     println(shlexbash.form_disagreement(ShlexAnsiCQuote))
+// ```
+pub fn form_disagreement(f: ShlexBashForm) -> Str []
+    todo("shlex-nv.shlexbash.form_disagreement")
+
+// The first bash-only form in a line, and where it starts, or `None`.
+//
+// The check the splitter makes before it splits.  It is public because
+// a caller validating a command line a user typed — a task runner
+// reading a configuration file, an editor — wants the answer before it
+// has decided to split anything.
+//
+// ```novo
+// use shlexbash
+//
+// fn main() [io]
+//     match shlexbash.first_form("echo $'a\tb'")
+//         Some(found) => println(shlexbash.form_name(found.form))
+//         None        => println("nothing bash-only here")
+// ```
+pub fn first_form(line: Str) -> ?ShlexBashFound []
+    todo("shlex-nv.shlexbash.first_form")
+
+// A bash-only form and the byte offset it starts at.
+//
+// ```novo
+// use shlexbash
+//
+// fn main() [io]
+//     match shlexbash.first_form("cat <(sort f)")
+//         Some(found) => println("${found.at}")
+//         None        => println("nothing bash-only here")
+// ```
+pub struct ShlexBashFound
+    // Which form it is.
+    form: ShlexBashForm
+    // The byte offset in the line where it begins, so a caller can
+    // point at it.
+    at: Int
+
+// Whether a line holds any bash-only form.
+//
+// True exactly when `first_form` answers something.  It is here
+// because the question reads better than the comparison at a call site
+// that only wants the answer.
+//
+// ```novo
+// use shlexbash
+//
+// fn main() [io]
+//     println("${shlexbash.is_bash_only("echo hello")}")
+// ```
+pub fn is_bash_only(line: Str) -> Bool []
+    todo("shlex-nv.shlexbash.is_bash_only")

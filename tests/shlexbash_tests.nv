@@ -1,0 +1,99 @@
+// shlexbash_tests.nv — the forms that are refused, and why refusing is
+// the only honest answer.
+//
+// RED ON PURPOSE: every assertion reaches `not implemented:
+// shlex-nv.shlexbash.<fn>` or `shlex-nv.shlexsplit.<fn>`.  What is
+// asserted is that each named form is detected where it starts, and
+// that the splitter refuses rather than producing the POSIX reading of
+// a line nobody wrote in POSIX.
+
+use std.test
+use shlexbash
+use shlexsplit
+use shlexerror
+
+@test
+fn test_each_named_form_is_found_where_it_starts() [io]
+    test.case("ANSI-C quoting")
+    match shlexbash.first_form("echo $'a\\tb'")
+        Some(found) =>
+            test.assert(shlexbash.form_code(found.form) == "ansi_c_quote")
+            test.assert(found.at == 5)
+        None        => test.fail("$'...' is a bash-only form")
+
+    test.case("locale translation")
+    match shlexbash.first_form("echo $\"hello\"")
+        Some(found) => test.assert(shlexbash.form_code(found.form) == "locale_quote")
+        None        => test.fail("$\"...\" is a bash-only form")
+
+    test.case("process substitution, either direction")
+    match shlexbash.first_form("diff <(sort a) <(sort b)")
+        Some(found) =>
+            test.assert(shlexbash.form_code(found.form) == "process_sub")
+            test.assert(found.at == 5)
+        None        => test.fail("<(...) is a bash-only form")
+
+    test.case("brace expansion")
+    match shlexbash.first_form("touch a{1,2}.txt")
+        Some(found) => test.assert(shlexbash.form_code(found.form) == "brace_expansion")
+        None        => test.fail("{a,b} is a bash-only form")
+
+    test.case("the compound commands")
+    match shlexbash.first_form("[[ -f a ]]")
+        Some(found) => test.assert(shlexbash.form_code(found.form) == "compound_command")
+        None        => test.fail("[[ ]] is a bash-only form")
+
+    test.case("and an extended glob")
+    match shlexbash.first_form("ls !(a b)")
+        Some(found) => test.assert(shlexbash.form_code(found.form) == "ext_glob")
+        None        => test.fail("!(...) is a bash-only form")
+
+@test
+fn test_an_ordinary_line_holds_none_of_them() [io]
+    test.case("a plain command")
+    test.assert(not shlexbash.is_bash_only("cp -r 'my files' /tmp"))
+    match shlexbash.first_form("cp -r 'my files' /tmp")
+        Some(_) => test.fail("nothing here is bash-only")
+        None    => test.assert(true)
+
+    test.case("a dollar sign on its own is an ordinary character in POSIX")
+    test.assert(not shlexbash.is_bash_only("echo \$PATH"))
+
+    test.case("and so is a brace with nothing to expand")
+    test.assert(not shlexbash.is_bash_only("echo {}"))
+
+@test
+fn test_the_splitter_refuses_rather_than_answering_the_wrong_split() [io]
+    // `$'a b'` is ONE word in bash and TWO under POSIX.  A splitter
+    // that answered either would have the program run a command
+    // nobody wrote.
+    test.case("the line is refused, naming the form and the offset")
+    match shlexsplit.split("echo $'a b'")
+        Ok(_)      => test.fail("this line means two different things")
+        Err(fault) =>
+            test.assert(shlexerror.code(fault) == "bash_only")
+            test.assert(shlexerror.offset(fault) == 5)
+
+    test.case("and it is not an unfinished line: reading more would not help")
+    match shlexsplit.split("echo $'a b'")
+        Ok(_)      => test.fail("this line means two different things")
+        Err(fault) => test.assert(not shlexerror.is_incomplete(fault))
+
+    test.case("so `is_complete` is true and splitting still fails")
+    test.assert(shlexsplit.is_complete("echo $'a b'"))
+
+@test
+fn test_every_form_can_say_what_the_two_readings_disagree_about() [io]
+    // The message worth showing a caller is not "unsupported": it is
+    // that bash and POSIX would split the line differently.
+    test.case("each form has a name and a disagreement")
+    test.assert(str.len(shlexbash.form_name(ShlexAnsiCQuote)) > 0)
+    test.assert(str.len(shlexbash.form_disagreement(ShlexAnsiCQuote)) > 0)
+    test.assert(str.len(shlexbash.form_name(ShlexLocaleQuote)) > 0)
+    test.assert(str.len(shlexbash.form_disagreement(ShlexProcessSub)) > 0)
+    test.assert(str.len(shlexbash.form_name(ShlexBraceExpansion)) > 0)
+    test.assert(str.len(shlexbash.form_name(ShlexCompoundCommand)) > 0)
+    test.assert(str.len(shlexbash.form_disagreement(ShlexExtGlob)) > 0)
+
+    test.case("and the codes are distinct, so a metric can count them apart")
+    test.assert(shlexbash.form_code(ShlexAnsiCQuote) != shlexbash.form_code(ShlexLocaleQuote))

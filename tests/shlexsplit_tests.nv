@@ -1,0 +1,209 @@
+// shlexsplit_tests.nv — the four quoting characters, and the line
+// between splitting and expanding.
+//
+// RED ON PURPOSE: every assertion reaches `not implemented:
+// shlex-nv.shlexsplit.<fn>`.  What is asserted is that each of the
+// three quoting forms behaves as POSIX.1-2017 section 2.2 describes,
+// that nothing is expanded, and that an unfinished line is told apart
+// from a refused one.
+
+use std.test
+use shlexsplit
+use shlexerror
+
+@test
+fn test_blanks_delimit_words_and_runs_of_them_are_one_delimiter() [io]
+    match shlexsplit.split("ls   -l    /tmp")
+        Ok(argv)   =>
+            test.case("three words, however many blanks are between them")
+            test.assert(list.len(argv) == 3)
+            test.assert(argv[0] == "ls")
+            test.assert(argv[2] == "/tmp")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("leading and trailing blanks produce no empty words")
+    match shlexsplit.split("  ls  ")
+        Ok(argv)   => test.assert(list.len(argv) == 1)
+        Err(fault) => test.fail(fault.message())
+
+    test.case("an empty line has no words at all")
+    match shlexsplit.split("")
+        Ok(argv)   => test.assert(list.len(argv) == 0)
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and a tab is a blank, like a space")
+    match shlexsplit.split("ls\t-l")
+        Ok(argv)   => test.assert(list.len(argv) == 2)
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_a_single_quoted_string_has_no_escapes_at_all() [io]
+    // POSIX section 2.2.2: every character up to the next `'` is
+    // literal, which is why a single quote cannot appear inside one
+    // and why this is the strategy the quoter uses.
+    match shlexsplit.split("echo 'a b'")
+        Ok(argv)   =>
+            test.case("the blank inside does not delimit")
+            test.assert(list.len(argv) == 2)
+            test.assert(argv[1] == "a b")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("a backslash inside is a backslash")
+    match shlexsplit.split("echo 'a\\b'")
+        Ok(argv)   => test.assert(argv[1] == "a\\b")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and quotes in the middle of a word join to it")
+    match shlexsplit.split("echo a'b c'd")
+        Ok(argv)   =>
+            test.assert(list.len(argv) == 2)
+            test.assert(argv[1] == "ab cd")
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_a_double_quoted_string_keeps_four_escapes() [io]
+    // POSIX section 2.2.3: inside double quotes a backslash retains
+    // its meaning only before `$`, a backtick, `"`, `\` and a newline.
+    match shlexsplit.split("echo \"a b\"")
+        Ok(argv)   =>
+            test.case("the blank inside does not delimit")
+            test.assert(list.len(argv) == 2)
+            test.assert(argv[1] == "a b")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("a backslash before a double quote escapes it")
+    match shlexsplit.split("echo \"a\\\"b\"")
+        Ok(argv)   => test.assert(argv[1] == "a\"b")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and a backslash before anything else stays a backslash")
+    match shlexsplit.split("echo \"a\\nb\"")
+        Ok(argv)   => test.assert(argv[1] == "a\\nb")
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_a_backslash_outside_quotes_escapes_one_character() [io]
+    match shlexsplit.split("echo a\\ b")
+        Ok(argv)   =>
+            test.case("an escaped blank does not delimit")
+            test.assert(list.len(argv) == 2)
+            test.assert(argv[1] == "a b")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("an escaped quote is a quote and opens nothing")
+    match shlexsplit.split("echo \\'")
+        Ok(argv)   => test.assert(argv[1] == "'")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and a backslash before a newline is a line continuation: both disappear")
+    match shlexsplit.split("echo a\\\nb")
+        Ok(argv)   =>
+            test.assert(list.len(argv) == 2)
+            test.assert(argv[1] == "ab")
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_splitting_is_not_expanding() [io]
+    // A shell splits and then expands.  Every expansion reads
+    // something — the environment, a process, a directory — and this
+    // package reads nothing, so it stops at the words.
+    match shlexsplit.split("echo *.txt")
+        Ok(argv)   =>
+            test.case("a glob is a word, not a list of file names")
+            test.assert(list.len(argv) == 2)
+            test.assert(argv[1] == "*.txt")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("a word that a shell would expand says so")
+    test.assert(shlexsplit.would_expand("*.txt"))
+    test.assert(shlexsplit.would_expand("~/notes"))
+
+    test.case("and one it would pass through does not")
+    test.assert(not shlexsplit.would_expand("/home/ada"))
+    test.assert(not shlexsplit.would_expand("--colour=always"))
+
+@test
+fn test_a_comment_is_off_by_default_because_a_prompt_has_none() [io]
+    let plain = shlexsplit.options()
+    let commented = shlexsplit.with_comments(plain)
+
+    test.case("by default a hash is a character in a word")
+    test.assert(not plain.comments)
+    match shlexsplit.split_with("ls #tag", plain)
+        Ok(argv)   => test.assert(list.len(argv) == 2)
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and with comments on, it ends the line")
+    test.assert(commented.comments)
+    match shlexsplit.split_with("ls #tag", commented)
+        Ok(argv)   => test.assert(list.len(argv) == 1)
+        Err(fault) => test.fail(fault.message())
+
+    test.case("a hash inside a word is never a comment")
+    test.assert(shlexsplit.comment_at("ls a#b") == 0 - 1)
+
+    test.case("nor is one inside quotes")
+    test.assert(shlexsplit.comment_at("grep '#' file") == 0 - 1)
+
+    test.case("and one that begins a word is, at its own offset")
+    test.assert(shlexsplit.comment_at("ls -l # why") == 6)
+
+@test
+fn test_an_unfinished_line_is_told_apart_from_a_refused_one() [io]
+    // A terminal continues on the first and refuses on the second.
+    test.case("a line ending inside a single quote is unfinished")
+    test.assert(not shlexsplit.is_complete("echo 'hi"))
+    match shlexsplit.split("echo 'hi")
+        Ok(_)      => test.fail("that quote is never closed")
+        Err(fault) =>
+            test.assert(shlexerror.is_incomplete(fault))
+            test.assert(shlexerror.offset(fault) == 5)
+            test.assert(shlexerror.waiting_for(fault) == "'")
+
+    test.case("so is one ending inside a double quote")
+    test.assert(not shlexsplit.is_complete("echo \"hi"))
+
+    test.case("so is one ending with a backslash")
+    test.assert(not shlexsplit.is_complete("echo hi\\"))
+
+    test.case("and a finished line is finished")
+    test.assert(shlexsplit.is_complete("echo hi"))
+    test.assert(shlexsplit.is_complete("echo 'hi'"))
+
+@test
+fn test_the_words_carry_their_offsets_and_whether_they_were_quoted() [io]
+    // What an editor needs: where to put a caret, and whether the user
+    // wrote quotes.
+    match shlexsplit.words("cp 'a b' c", shlexsplit.options())
+        Ok(found)  =>
+            test.case("three words")
+            test.assert(list.len(found) == 3)
+
+            test.case("the span of a quoted word includes its quotes")
+            test.assert(found[1].text == "a b")
+            test.assert(found[1].start == 3)
+            test.assert(found[1].end == 8)
+
+            test.case("and quoting is recorded, because it decides what a user meant")
+            test.assert(found[1].quoted)
+            test.assert(not found[0].quoted)
+            test.assert(not found[2].quoted)
+
+        Err(fault) => test.fail(fault.message())
+
+@test
+fn test_the_first_word_is_available_without_splitting_the_rest() [io]
+    test.case("the program name")
+    match shlexsplit.first_word("git commit -m 'a message'")
+        Some(program) => test.assert(program == "git")
+        None          => test.fail("this line has a first word")
+
+    test.case("quoting is removed from it like any other word")
+    match shlexsplit.first_word("'my program' --help")
+        Some(program) => test.assert(program == "my program")
+        None          => test.fail("this line has a first word")
+
+    test.case("and an empty line has none")
+    match shlexsplit.first_word("   ")
+        Some(_) => test.fail("a line of blanks has no first word")
+        None    => test.assert(true)
