@@ -1,11 +1,5 @@
 // shlexsplit_tests.nv — the four quoting characters, and the line
 // between splitting and expanding.
-//
-// RED ON PURPOSE: every assertion reaches `not implemented:
-// shlex-nv.shlexsplit.<fn>`.  What is asserted is that each of the
-// three quoting forms behaves as POSIX.1-2017 section 2.2 describes,
-// that nothing is expanded, and that an unfinished line is told apart
-// from a refused one.
 
 use std.test
 use shlexsplit
@@ -207,3 +201,66 @@ fn test_the_first_word_is_available_without_splitting_the_rest() [io]
     match shlexsplit.first_word("   ")
         Some(_) => test.fail("a line of blanks has no first word")
         None    => test.assert(true)
+
+@test
+fn test_the_first_word_is_none_when_it_is_not_known() [io]
+    test.case("an unfinished first word")
+    match shlexsplit.first_word("'abc")
+        Some(_) => test.fail("the first word never ends")
+        None    => test.assert(true)
+
+    test.case("a first word holding a bash-only form")
+    match shlexsplit.first_word("$'a b' c")
+        Some(_) => test.fail("bash and POSIX disagree about this word")
+        None    => test.assert(true)
+
+    test.case("a bash-only form after the first word does not matter")
+    match shlexsplit.first_word("echo $'a b'")
+        Some(program) => test.assert(program == "echo")
+        None          => test.fail("the first word is echo")
+
+@test
+fn test_would_expand_reads_the_quotes_as_a_shell_does() [io]
+    test.case("an escaped or single-quoted glob is inert")
+    test.assert(not shlexsplit.would_expand("a\\*b"))
+    test.assert(not shlexsplit.would_expand("'*.txt'"))
+
+    test.case("a glob inside double quotes is inert")
+    test.assert(not shlexsplit.would_expand("\"*.txt\""))
+
+    test.case("a dollar sign inside double quotes is expanded")
+    test.assert(shlexsplit.would_expand("\"\$HOME\""))
+
+    test.case("unless a backslash escapes it")
+    test.assert(not shlexsplit.would_expand("\"a\\\$b\""))
+
+    test.case("and an unclosed double quote holds what follows it")
+    test.assert(not shlexsplit.would_expand("\"abc"))
+
+@test
+fn test_a_comment_is_found_by_the_splitter_s_own_rules() [io]
+    test.case("a line continuation keeps the next character at a word start")
+    test.assert(shlexsplit.comment_at("a \\\n# c") == 4)
+
+    test.case("an escaped hash is text")
+    test.assert(shlexsplit.comment_at("a \\#b") == 0 - 1)
+
+    test.case("a double-quoted hash is text, and a later one is a comment")
+    test.assert(shlexsplit.comment_at("\"#\" # x") == 4)
+
+    test.case("and an unclosed quote hides the rest of the line")
+    test.assert(shlexsplit.comment_at("\"abc # x") == 0 - 1)
+
+@test
+fn test_a_line_continuation_disappears_wherever_it_stands() [io]
+    test.case("between words")
+    match shlexsplit.split("\\\nls")
+        Ok(argv)   =>
+            test.assert(list.len(argv) == 1)
+            test.assert(argv[0] == "ls")
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and inside double quotes")
+    match shlexsplit.split("\"a\\\nb\"")
+        Ok(argv)   => test.assert(argv[0] == "ab")
+        Err(fault) => test.fail(fault.message())

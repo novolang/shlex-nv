@@ -8,16 +8,10 @@ This package splits a line into those words, quotes a word so that a
 shell reads it back unchanged, and refuses the constructs bash splits
 differently.
 
-**Status: NOT IMPLEMENTED — interface only.** Every function is
-declared with its full signature, but every body is a `todo()` that
-panics when called. The package is published so its design can be
-reviewed and depended on before it is implemented. Version 0.1.0 will
-be the first working release.
-
 ## What the rules are
 
 A **word** is a run of characters delimited by blanks. A blank is a
-space or a tab. Any number of them in a row is one delimiter, and
+space, a tab or a newline, which is the default value of `IFS`. Any number of them in a row is one delimiter, and
 leading and trailing blanks produce no empty words.
 
 Four characters change that.
@@ -46,10 +40,11 @@ wrapped in single quotes, and each single quote inside it is written
 single-quoted string no character has a special meaning at all, so
 there is no list of metacharacters to keep up to date.
 
-**Bash** adds constructs that change how a line is split. `$'a b'` is
-one word in bash and two under these rules, because POSIX has no
-`$'…'` quote: the `$` is an ordinary character and `'a b'` is a
-single-quoted string. `<(sort f)` is one word in bash and two here.
+**Bash** adds constructs that change how a line is split. Bash reads
+`$'a\tb'` as `a`, a tab and `b`. POSIX has no `$'…'` quote, so under
+these rules the `$` is an ordinary character and the rest is a
+single-quoted string: the word is the five characters `$a\tb`.
+`<(sort f)` is one word in bash and two here.
 A splitter that applied the POSIX rules to those lines would answer,
 and the answer would be a command nobody wrote. They are refused by
 name.
@@ -81,11 +76,6 @@ fn main() [io]
         Ok(line)   => println(line)                // grep 'it'\''s here' notes.txt
 ```
 
-Build and test with `novo pkg build` and `novo test`. Today `novo test`
-fails on purpose: every test reaches a
-`not implemented: shlex-nv.<module>.<fn>` panic. The tests are the
-specification the implementation will have to satisfy.
-
 ## What the package contains
 
 | Module | Contents |
@@ -111,8 +101,9 @@ terminal calls it to decide whether to print a secondary prompt.
 **`shlexquote.quote` quotes one word.** `shlexquote.join` quotes a
 whole list and joins it with single spaces.
 
-**`shlexquote.quote_into` appends to a buffer the caller owns.** Use it
-when a long command line is being assembled.
+**`shlexquote.quote_into` appends to a byte buffer the caller owns**
+and answers how many bytes it appended. Use it when a long command
+line is being assembled.
 
 ## The rules a user needs
 
@@ -145,8 +136,10 @@ when a long command line is being assembled.
    dangling backslash, and false for a bash-only form and a NUL byte.
    A terminal reads more on the first and stops on the second.
 9. **Quoting is single quotes, always.** A word that needs nothing is
-   returned unchanged, so an ordinary command line stays readable. The
-   empty string becomes `''`, because nothing is not a word.
+   returned unchanged, so an ordinary command line stays readable. A
+   word needs nothing when every byte is an ASCII letter, a digit or
+   one of `@%+=:,./-_`, which is the set Python's `shlex.quote` uses.
+   The empty string becomes `''`, because nothing is not a word.
 10. **A NUL byte cannot be quoted.** No shell can carry one in an
     argument, and dropping it would produce a command line other than
     the one asked for. `shlexquote.quote` refuses and names the offset.
@@ -171,8 +164,8 @@ when a long command line is being assembled.
   They are not words, and a line holding them is a command *list*,
   which is a grammar rather than a quoting rule. A caller building a
   command line is not producing them.
-- **`IFS`.** The blanks are space, tab and newline, which is the
-  default value. Reading a different one means reading the
+- **A different `IFS`.** The blanks are space, tab and newline, which
+  is the default value. Reading a different one means reading the
   environment.
 - **A `csh` or PowerShell dialect.** Their quoting rules are different
   enough that one function could not serve both without an argument
@@ -193,10 +186,12 @@ when a long command line is being assembled.
 ## Tests
 
 ```bash
-novo test tests/shlexsplit_tests.nv   # the four quoting characters
-novo test tests/shlexquote_tests.nv   # quoting, and the round trip
-novo test tests/shlexbash_tests.nv    # the six refused forms
-novo test tests/shlexerror_tests.nv   # unfinished against refused
+novo test tests/shlexsplit_tests.nv        # the four quoting characters
+novo test tests/shlexquote_tests.nv        # quoting, and the round trip
+novo test tests/shlexbash_tests.nv         # the six refused forms
+novo test tests/shlexerror_tests.nv        # unfinished against refused
+novo test tests/differential_tests.nv      # against Python's shlex
+bash tests/coverage.sh                     # line coverage over src/
 ```
 
 The normative source is POSIX.1-2017, Shell Command Language, sections
@@ -204,31 +199,20 @@ The normative source is POSIX.1-2017, Shell Command Language, sections
 and Python's `shlex` module, whose `split` and `quote` this package's
 two halves correspond to.
 
-The suite asserts that each quoting form behaves as section 2.2
+The suites assert that each quoting form behaves as section 2.2
 describes, that quotes join to the word around them, that nothing is
 expanded, that a line ending inside a quote is reported as incomplete,
 that each of the six bash forms is found at its own offset and refused,
 and that joining a list of words and splitting the result gives the
 list back.
 
-The tests compile today and fail at run, each on the
-`not implemented: shlex-nv.<module>.<fn>` panic that is its body. That
-is the expected state of an interface release. They turn green one at a
-time as bodies land.
-
-## Implementation status
-
-| Item | Implemented |
-| --- | --- |
-| `shlexsplit.ShlexWord`, `.ShlexOptions`, `shlexbash.ShlexBashForm`, `.ShlexBashFound`, `shlexerror.ShlexFault` | the types are declared |
-| `shlexsplit.split`, `.split_with`, `.words` | no |
-| `shlexsplit.options`, `.with_comments`, `.comment_at` | no |
-| `shlexsplit.is_complete`, `.first_word`, `.would_expand` | no |
-| `shlexquote.quote`, `.quote_into`, `.join` | no |
-| `shlexquote.needs_quoting`, `.is_option_like`, `.first_nul` | no |
-| `shlexbash.first_form`, `.is_bash_only` | no |
-| `shlexbash.form_name`, `.form_code`, `.form_disagreement` | no |
-| `shlexerror.is_incomplete`, `.offset`, `.code`, `.waiting_for`, `ShlexFault.message` | no |
+`tests/differential_tests.nv` is written by `tools/differential.py`
+from a fixed seed. It holds 160 generated lines with the words
+Python's `shlex.split` answers for them, 40 lines Python refuses as
+unfinished, 80 words with their quoted forms, and 20 lists of words
+that are joined and split back. The generated lines leave out `$`, the
+backtick and the newline, on which Python differs from section 2.2,
+and the characters that begin a bash-only form.
 
 ## Licence
 

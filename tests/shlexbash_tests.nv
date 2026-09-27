@@ -1,11 +1,5 @@
 // shlexbash_tests.nv — the forms that are refused, and why refusing is
 // the only honest answer.
-//
-// RED ON PURPOSE: every assertion reaches `not implemented:
-// shlex-nv.shlexbash.<fn>` or `shlex-nv.shlexsplit.<fn>`.  What is
-// asserted is that each named form is detected where it starts, and
-// that the splitter refuses rather than producing the POSIX reading of
-// a line nobody wrote in POSIX.
 
 use std.test
 use shlexbash
@@ -64,7 +58,7 @@ fn test_an_ordinary_line_holds_none_of_them() [io]
 
 @test
 fn test_the_splitter_refuses_rather_than_answering_the_wrong_split() [io]
-    // `$'a b'` is ONE word in bash and TWO under POSIX.  A splitter
+    // Bash reads `$'a b'` as `a b`, and POSIX as `$a b`.  A splitter
     // that answered either would have the program run a command
     // nobody wrote.
     test.case("the line is refused, naming the form and the offset")
@@ -97,3 +91,74 @@ fn test_every_form_can_say_what_the_two_readings_disagree_about() [io]
 
     test.case("and the codes are distinct, so a metric can count them apart")
     test.assert(shlexbash.form_code(ShlexAnsiCQuote) != shlexbash.form_code(ShlexLocaleQuote))
+
+@test
+fn test_every_form_has_all_three_texts() [io]
+    let forms = [ShlexAnsiCQuote,
+        ShlexLocaleQuote,
+        ShlexProcessSub,
+        ShlexBraceExpansion,
+        ShlexCompoundCommand,
+        ShlexExtGlob]
+    test.case("a name, a code and a disagreement for each of the six")
+    for form in forms
+        test.assert(str.len(shlexbash.form_name(form)) > 0)
+        test.assert(str.len(shlexbash.form_code(form)) > 0)
+        test.assert(str.len(shlexbash.form_disagreement(form)) > 0)
+    test.assert(shlexbash.is_bash_only("echo $'a'"))
+
+@test
+fn test_a_compound_command_is_found_only_where_it_begins_a_word() [io]
+    test.case("an arithmetic command")
+    match shlexbash.first_form("(( i++ ))")
+        Some(found) =>
+            test.assert(shlexbash.form_code(found.form) == "compound_command")
+            test.assert(found.at == 0)
+        None        => test.fail("(( )) is a bash-only form")
+
+    test.case("a bracket expression is a glob, not a conditional command")
+    test.assert(not shlexbash.is_bash_only("grep [[:digit:]] f"))
+
+    test.case("and `[[` inside a word is text")
+    test.assert(not shlexbash.is_bash_only("echo a[[ b"))
+
+@test
+fn test_a_brace_pair_is_an_expansion_only_when_it_holds_alternatives() [io]
+    test.case("a nested pair")
+    match shlexbash.first_form("echo {a,{b,c}}")
+        Some(found) => test.assert(found.at == 5)
+        None        => test.fail("{a,{b,c}} is brace expansion")
+
+    test.case("a sequence")
+    test.assert(shlexbash.is_bash_only("echo {1..9}"))
+
+    test.case("a blank ends the word before the brace closes")
+    test.assert(not shlexbash.is_bash_only("echo {a b,c}"))
+
+    test.case("an escaped or quoted comma is text")
+    test.assert(not shlexbash.is_bash_only("echo {a\\,b}"))
+    test.assert(not shlexbash.is_bash_only("echo {'a,b'}"))
+    test.assert(not shlexbash.is_bash_only("echo {\"a,b\"}"))
+
+    test.case("an unclosed brace is text")
+    test.assert(not shlexbash.is_bash_only("echo {a,b"))
+
+    test.case("and a parameter expansion is not a brace expansion")
+    test.assert(not shlexbash.is_bash_only("echo \${a,b}"))
+
+@test
+fn test_a_form_inside_quotes_or_a_comment_is_text() [io]
+    test.case("inside double quotes, past an escaped quote")
+    test.assert(not shlexbash.is_bash_only("echo \"a\\\"<(b)\""))
+
+    test.case("after an unclosed double quote nothing is outside quotes")
+    test.assert(not shlexbash.is_bash_only("echo \"a <(b)"))
+
+    test.case("behind a backslash")
+    test.assert(not shlexbash.is_bash_only("echo \\<(b)"))
+
+    test.case("and in a comment, when comments are on")
+    let commented = shlexsplit.with_comments(shlexsplit.options())
+    match shlexsplit.split_with("ls # $'x'\necho", commented)
+        Ok(argv)   => test.assert(list.len(argv) == 2)
+        Err(fault) => test.fail(fault.message())

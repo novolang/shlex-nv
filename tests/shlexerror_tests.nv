@@ -1,10 +1,5 @@
 // shlexerror_tests.nv — the division between a line that needs more
 // and a line that needs fixing.
-//
-// RED ON PURPOSE: every assertion reaches `not implemented:
-// shlex-nv.shlexerror.<fn>`.  What is asserted is that
-// `is_incomplete` separates the three unfinished forms from the two
-// finished ones, and that every fault knows where it is.
 
 use std.test
 use shlexerror
@@ -56,3 +51,12 @@ fn test_the_code_is_stable_and_the_message_says_what_happened() [io]
     test.case("and a message for a log")
     test.assert(str.len(ShlexUnterminatedSingle(5).message()) > 0)
     test.assert(str.len(ShlexBashOnly(ShlexProcessSub, 5).message()) > 0)
+
+@test
+fn test_every_arm_has_a_message_naming_its_offset() [io]
+    test.case("the offset is in the text")
+    test.assert(str.contains(ShlexUnterminatedSingle(5).message(), "5"))
+    test.assert(str.contains(ShlexUnterminatedDouble(6).message(), "6"))
+    test.assert(str.contains(ShlexDanglingEscape(7).message(), "7"))
+    test.assert(str.contains(ShlexBashOnly(ShlexProcessSub, 8).message(), "8"))
+    test.assert(str.contains(ShlexNulByte(9).message(), "9"))

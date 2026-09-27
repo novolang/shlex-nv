@@ -1,29 +1,25 @@
 // shlexbash.nv — the forms bash has and the Shell Command Language
 // does not, named one by one.
 //
-// WHY A SPLITTER HAS TO KNOW ABOUT THEM AT ALL
+// Every form here is a construct that bash reads differently from the
+// POSIX rules.  Bash reads `$'a\tb'` as `a`, a tab and `b`.  POSIX has
+// no `$'...'` quote, so the `$` is an ordinary character and the rest
+// is a single-quoted string: the word is the five characters `$a\tb`.
+// `<(sort f)` is one word in bash and two under POSIX.
 //
-// Every form here is a construct bash splits into words DIFFERENTLY
-// from the way the POSIX rules split it.  `$'a b'` is one word in bash
-// and two under POSIX, because POSIX has no `$'...'` quote: the `$` is
-// an ordinary character and `'a b'` is a single-quoted string, so the
-// line reads as `$a` and `b`.  `<(sort f)` is one word in bash and two
-// under POSIX.
+// A splitter that applied the POSIX rules to those lines would answer,
+// and the program using the answer would run a command nobody wrote.
+// Each form is therefore detected and refused by name.
 //
-// A splitter that applied the POSIX rules to those lines would not
-// fail.  It would answer, and the answer would be wrong, and the
-// program using it would run a command nobody wrote.  So each of them
-// is detected and refused by name, with the bash spelling in the
-// message, which is the one answer a caller can do something about.
+// The list holds only the constructs that change the words a line
+// splits into.  Bash's operators,
+// such as `&>`, `|&`, `<<<` and `;;`, are not words, and a caller
+// building a command line does not produce them.  Refusing them would
+// refuse a program's own data, so they are ordinary characters here.
 //
-// THIS IS NOT A LIST OF EVERYTHING BASH ADDS
-//
-// It is the list of things that change WORD SPLITTING.  Bash's
-// operators — `&>`, `|&`, `<<<`, `;;` — are not words at all, and a
-// caller building a command line is not producing them.  They are
-// named in the README as outside this package rather than refused
-// here, because refusing a string this package was never asked to
-// split would refuse a program's own data.
+// The scan follows the quoting rules of `shlexsplit`: a form inside
+// single or double quotes, or behind a backslash, is text and not a
+// form.
 
 // A construct bash splits differently from the Shell Command Language.
 //
@@ -37,24 +33,29 @@ pub enum ShlexBashForm
     // `$'...'`, ANSI-C quoting: bash reads the body with C escape
     // sequences and strips the `$`.  Under POSIX the `$` is a literal
     // character and the quotes are an ordinary single-quoted string,
-    // so `$'a\tb'` is the four characters `$a\tb` here and a tab there.
+    // so `$'a\tb'` is the five characters `$a\tb` here and holds a tab
+    // there.
     ShlexAnsiCQuote
     // `$"..."`, locale translation: bash looks the body up in a
     // message catalogue and strips the `$`.  Under POSIX the `$` is
     // literal, so the word keeps it.
     ShlexLocaleQuote
     // `<(...)` and `>(...)`, process substitution: bash runs the
-    // command and substitutes a file name, as ONE word.  Under POSIX
+    // command and substitutes a file name, as one word.  Under POSIX
     // the parentheses are ordinary characters and the blanks inside
     // split the line.
     ShlexProcessSub
     // `{a,b}` and `{1..9}`, brace expansion: bash turns one word into
     // several before anything else happens.  Under POSIX braces are
-    // ordinary characters and the word stays one word.
+    // ordinary characters and the word stays one word.  A brace pair
+    // is this form when it holds a `,` or a `..` outside any inner
+    // pair, so `{}` and `{a}` are ordinary text.
     ShlexBraceExpansion
     // `(( ))` and `[[ ]]`, the arithmetic and conditional commands:
     // bash parses the body by rules of its own, in which blanks and
-    // quotes do not mean what they mean in a command line.
+    // quotes do not mean what they mean in a command line.  Each is
+    // recognised only where it begins a word, and `[[` only when a
+    // blank follows it, because `[[:digit:]]` is a glob.
     ShlexCompoundCommand
     // `?(...)`, `*(...)`, `+(...)`, `@(...)` and `!(...)`, extended
     // globs: one word in bash, several under POSIX when the body holds
@@ -71,7 +72,13 @@ pub enum ShlexBashForm
 //     println(shlexbash.form_name(ShlexProcessSub))
 // ```
 pub fn form_name(f: ShlexBashForm) -> Str []
-    todo("shlex-nv.shlexbash.form_name")
+    match f
+        ShlexAnsiCQuote      => "$'...' (ANSI-C quoting)"
+        ShlexLocaleQuote     => "$\"...\" (locale translation)"
+        ShlexProcessSub      => "<(...) or >(...) (process substitution)"
+        ShlexBraceExpansion  => "{a,b} or {1..9} (brace expansion)"
+        ShlexCompoundCommand => "[[ ... ]] or (( ... )) (a compound command)"
+        ShlexExtGlob         => "?(...), *(...), +(...), @(...) or !(...) (an extended glob)"
 
 // A short stable code for a log or a metric label: `"ansi_c_quote"`,
 // `"process_sub"`, and the rest.
@@ -83,7 +90,13 @@ pub fn form_name(f: ShlexBashForm) -> Str []
 //     println(shlexbash.form_code(ShlexBraceExpansion))
 // ```
 pub fn form_code(f: ShlexBashForm) -> Str []
-    todo("shlex-nv.shlexbash.form_code")
+    match f
+        ShlexAnsiCQuote      => "ansi_c_quote"
+        ShlexLocaleQuote     => "locale_quote"
+        ShlexProcessSub      => "process_sub"
+        ShlexBraceExpansion  => "brace_expansion"
+        ShlexCompoundCommand => "compound_command"
+        ShlexExtGlob         => "ext_glob"
 
 // What the two readings of this form disagree about, in one sentence.
 //
@@ -98,14 +111,29 @@ pub fn form_code(f: ShlexBashForm) -> Str []
 //     println(shlexbash.form_disagreement(ShlexAnsiCQuote))
 // ```
 pub fn form_disagreement(f: ShlexBashForm) -> Str []
-    todo("shlex-nv.shlexbash.form_disagreement")
+    match f
+        ShlexAnsiCQuote      =>
+            "bash reads the quoted text with C escapes and drops the $, and POSIX keeps the $ and every backslash"
+        ShlexLocaleQuote     =>
+            "bash replaces the quoted text with its translation and drops the $, and POSIX keeps the $ and the text"
+        ShlexProcessSub      =>
+            "bash replaces the parenthesised command with one file name, and POSIX splits it at its blanks"
+        ShlexBraceExpansion  =>
+            "bash makes one word for each alternative, and POSIX keeps the braces as one word"
+        ShlexCompoundCommand =>
+            "bash reads the body by rules of its own, and POSIX splits it into ordinary words"
+        ShlexExtGlob         =>
+            "bash reads the pattern as one word, and POSIX splits it at any blank inside the parentheses"
 
 // The first bash-only form in a line, and where it starts, or `None`.
 //
-// The check the splitter makes before it splits.  It is public because
-// a caller validating a command line a user typed — a task runner
-// reading a configuration file, an editor — wants the answer before it
-// has decided to split anything.
+// The check the splitter makes after it splits.  It is public because a
+// caller validating a command line, such as a task runner reading a
+// configuration file or an editor, wants the answer before it has
+// decided to split anything.
+//
+// The scan stops at an unclosed quote and answers `None` for the rest
+// of the line, since nothing after it is outside quotes.
 //
 // ```novo
 // use shlexbash
@@ -116,7 +144,7 @@ pub fn form_disagreement(f: ShlexBashForm) -> Str []
 //         None        => println("nothing bash-only here")
 // ```
 pub fn first_form(line: Str) -> ?ShlexBashFound []
-    todo("shlex-nv.shlexbash.first_form")
+    scan(line, false)
 
 // A bash-only form and the byte offset it starts at.
 //
@@ -137,9 +165,7 @@ pub struct ShlexBashFound
 
 // Whether a line holds any bash-only form.
 //
-// True exactly when `first_form` answers something.  It is here
-// because the question reads better than the comparison at a call site
-// that only wants the answer.
+// True exactly when `first_form` answers something.
 //
 // ```novo
 // use shlexbash
@@ -148,4 +174,126 @@ pub struct ShlexBashFound
 //     println("${shlexbash.is_bash_only("echo hello")}")
 // ```
 pub fn is_bash_only(line: Str) -> Bool []
-    todo("shlex-nv.shlexbash.is_bash_only")
+    match first_form(line)
+        Some(_) => true
+        None    => false
+
+// The first bash-only form in `line`, under the quoting rules.  With
+// `comments` set, a `#` that begins a word hides the rest of its line,
+// as it does from the splitter.
+fn scan(line: Str, comments: Bool) -> ?ShlexBashFound
+    let n = str.len(line)
+    var i = 0
+    var word_start = true
+    for _ in 0..n
+        if i >= n
+            break
+        let c = str.byte_at_or(line, i, 0)
+        let d = str.byte_at_or(line, i + 1, 0)
+        if c == ' ' or c == '\t' or c == '\n'
+            word_start = true
+            i = i + 1
+            continue
+        if c == '\\' and d == '\n'
+            i = i + 2
+            continue
+        if comments and word_start and c == '#'
+            i = line_end(line, i)
+            continue
+        let begins = word_start
+        word_start = false
+        if c == '\\'
+            i = i + 2
+        else if c == '\''
+            let close = str.index_from(line, "'", i + 1) ?? n
+            i = close + 1
+        else if c == '"'
+            i = double_end(line, i)
+        else
+            match form_at(line, i, begins)
+                Some(form) =>
+                    return Some(ShlexBashFound { form: form, at: i })
+                None       =>
+                    i = i + 1
+    None
+
+// The form that starts at the unquoted byte `i`, if one does.  `begins`
+// says whether that byte begins a word.
+fn form_at(line: Str, i: Int, begins: Bool) -> ?ShlexBashForm
+    let c = str.byte_at_or(line, i, 0)
+    let d = str.byte_at_or(line, i + 1, 0)
+    if c == '$' and d == '\''
+        return Some(ShlexAnsiCQuote)
+    if c == '$' and d == '"'
+        return Some(ShlexLocaleQuote)
+    if (c == '<' or c == '>') and d == '('
+        return Some(ShlexProcessSub)
+    if d == '(' and (c == '?' or c == '*' or c == '+' or c == '@' or c == '!')
+        return Some(ShlexExtGlob)
+    if begins and c == '(' and d == '('
+        return Some(ShlexCompoundCommand)
+    if begins and c == '[' and d == '[' and is_blank_or_end(line, i + 2)
+        return Some(ShlexCompoundCommand)
+    if c == '{' and str.byte_at_or(line, i - 1, 0) != '$' and is_brace_expansion(line, i)
+        return Some(ShlexBraceExpansion)
+    None
+
+// Whether the brace at `open` starts a brace expansion: its matching
+// brace closes a body holding a `,` or a `..` at its own depth, before
+// the word ends.
+fn is_brace_expansion(line: Str, open: Int) -> Bool
+    let n = str.len(line)
+    var depth = 1
+    var alternatives = false
+    var i = open + 1
+    for _ in 0..n
+        if i >= n
+            break
+        let c = str.byte_at_or(line, i, 0)
+        if c == ' ' or c == '\t' or c == '\n'
+            return false
+        if c == '\\'
+            i = i + 2
+            continue
+        if c == '\''
+            i = (str.index_from(line, "'", i + 1) ?? n) + 1
+            continue
+        if c == '"'
+            i = double_end(line, i)
+            continue
+        if c == '{'
+            depth = depth + 1
+        else if c == '}'
+            depth = depth - 1
+            if depth == 0
+                return alternatives
+        else if depth == 1 and (c == ',' or c == '.' and str.byte_at_or(line, i + 1, 0) == '.')
+            alternatives = true
+        i = i + 1
+    false
+
+// The offset just past the double-quoted string opening at `open`, or
+// the line's length when it is never closed.
+fn double_end(line: Str, open: Int) -> Int
+    let n = str.len(line)
+    var i = open + 1
+    for _ in 0..n
+        if i >= n
+            break
+        let c = str.byte_at_or(line, i, 0)
+        if c == '"'
+            return i + 1
+        if c == '\\'
+            i = i + 2
+        else
+            i = i + 1
+    n
+
+// The offset of the newline ending the line that holds `i`, or the
+// length of `line`.
+fn line_end(line: Str, i: Int) -> Int
+    str.index_from(line, "\n", i) ?? str.len(line)
+
+fn is_blank_or_end(line: Str, i: Int) -> Bool
+    let c = str.byte_at_or(line, i, ' ')
+    c == ' ' or c == '\t' or c == '\n'

@@ -1,19 +1,14 @@
-// shlexerror.nv — the three ways a line is not finished, and the one
-// way it is not POSIX.
+// shlexerror.nv — why a line could not be split, and whether reading
+// more of it would help.
 //
-// AN UNFINISHED LINE IS NOT A BROKEN LINE
+// A line that ends inside a quote, or with a backslash, is incomplete.
+// A shell reading interactively would print its secondary prompt and
+// read more.  A line holding `$'a b'` is finished, and it means one
+// thing to bash and another to a POSIX shell.
 //
-// A line ending inside a quote and a line ending with a backslash are
-// both incomplete: a shell reading interactively would print its
-// secondary prompt and read more.  A line holding `$'a b'` is
-// something else — it is finished, and it means one thing to bash and
-// another to a POSIX shell.
-//
-// `is_incomplete` is the function that separates them, and it is the
-// whole reason this enum is not three arms.  A terminal reading a
-// command from a user continues on the first and refuses on the
-// second.  A configuration reader refuses on both and says different
-// things.
+// `is_incomplete` separates the two.  A terminal reading a command
+// continues on the first and refuses on the second.  A reader of a
+// configuration file refuses on both, with different messages.
 
 use shlexbash
 
@@ -27,36 +22,39 @@ use shlexbash
 // ```
 pub enum ShlexFault
     // A single quote was opened and never closed.  `at` is the offset
-    // of the opening quote.  INCOMPLETE: there is no escape inside a
-    // single-quoted string, so the rest of the line, whatever it
-    // holds, is part of the word until the next `'`.
+    // of the opening quote.  Incomplete: there is no escape inside a
+    // single-quoted string, so the rest of the line is part of the
+    // word until the next `'`.
     ShlexUnterminatedSingle(at: Int)
     // A double quote was opened and never closed.  `at` is the offset
-    // of the opening quote.  INCOMPLETE.
+    // of the opening quote.  Incomplete.
     ShlexUnterminatedDouble(at: Int)
     // The line ends with a backslash that escapes nothing.  `at` is
-    // its offset.  INCOMPLETE: in a shell this is a line continuation
+    // its offset.  Incomplete: in a shell this is a line continuation
     // and the next line belongs to the same command.
     ShlexDanglingEscape(at: Int)
     // The line holds a construct bash splits differently from the
-    // Shell Command Language.  NOT incomplete: reading more would not
-    // help, because the disagreement is about the line that is already
-    // there.
+    // Shell Command Language.  Not incomplete: reading more would not
+    // help, because the two readings disagree about the line that is
+    // already there.
     ShlexBashOnly(form: shlexbash.ShlexBashForm, at: Int)
     // A word handed to the quoter holds a NUL byte.  No shell can
-    // carry one in an argument, there is no quoting that admits it,
-    // and a quoter that dropped it would produce a command line that
-    // is not the one it was asked for.  `at` is its offset.
+    // carry one in an argument, and no quoting admits it.  `at` is its
+    // offset.
     ShlexNulByte(at: Int)
 
 // `ShlexFault` is an `Error`, which is what lets
 // `Result<T, ShlexFault>` exist at all (SPEC section 3.4).
 impl Error for ShlexFault
     // The one-line message, naming the construct and its offset.
-    //
-    // Panics with `not implemented` until the bodies land.
     fn message(self) -> Str
-        todo("shlex-nv.ShlexFault.message")
+        match self
+            ShlexUnterminatedSingle(at) => "an unterminated single quote at offset ${at}"
+            ShlexUnterminatedDouble(at) => "an unterminated double quote at offset ${at}"
+            ShlexDanglingEscape(at)     => "a backslash at offset ${at} escapes nothing"
+            ShlexBashOnly(form, at)     =>
+                "a bash-only form at offset ${at}: ${shlexbash.form_name(form)}"
+            ShlexNulByte(at)            => "a NUL byte at offset ${at}, which no shell argument can hold"
 
 // Whether the line would be finished by reading more of it.
 //
@@ -71,7 +69,12 @@ impl Error for ShlexFault
 //     println("${shlexerror.is_incomplete(ShlexNulByte(3))}")
 // ```
 pub fn is_incomplete(f: ShlexFault) -> Bool []
-    todo("shlex-nv.shlexerror.is_incomplete")
+    match f
+        ShlexUnterminatedSingle(_) => true
+        ShlexUnterminatedDouble(_) => true
+        ShlexDanglingEscape(_)     => true
+        ShlexBashOnly(_, _)        => false
+        ShlexNulByte(_)            => false
 
 // The byte offset the fault is about.
 //
@@ -86,7 +89,12 @@ pub fn is_incomplete(f: ShlexFault) -> Bool []
 //     println("${shlexerror.offset(ShlexDanglingEscape(11))}")
 // ```
 pub fn offset(f: ShlexFault) -> Int []
-    todo("shlex-nv.shlexerror.offset")
+    match f
+        ShlexUnterminatedSingle(at) => at
+        ShlexUnterminatedDouble(at) => at
+        ShlexDanglingEscape(at)     => at
+        ShlexBashOnly(_, at)        => at
+        ShlexNulByte(at)            => at
 
 // A short stable code for a log or a metric label:
 // `"unterminated_single"`, `"bash_only"`, and the rest.
@@ -100,7 +108,12 @@ pub fn offset(f: ShlexFault) -> Int []
 //     println(shlexerror.code(ShlexUnterminatedSingle(4)))
 // ```
 pub fn code(f: ShlexFault) -> Str []
-    todo("shlex-nv.shlexerror.code")
+    match f
+        ShlexUnterminatedSingle(_) => "unterminated_single"
+        ShlexUnterminatedDouble(_) => "unterminated_double"
+        ShlexDanglingEscape(_)     => "dangling_escape"
+        ShlexBashOnly(_, _)        => "bash_only"
+        ShlexNulByte(_)            => "nul_byte"
 
 // The character a shell would be waiting for, or `""`.
 //
@@ -116,4 +129,9 @@ pub fn code(f: ShlexFault) -> Str []
 //     println(shlexerror.waiting_for(ShlexUnterminatedSingle(4)))
 // ```
 pub fn waiting_for(f: ShlexFault) -> Str []
-    todo("shlex-nv.shlexerror.waiting_for")
+    match f
+        ShlexUnterminatedSingle(_) => "'"
+        ShlexUnterminatedDouble(_) => "\""
+        ShlexDanglingEscape(_)     => "\\"
+        ShlexBashOnly(_, _)        => ""
+        ShlexNulByte(_)            => ""

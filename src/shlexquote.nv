@@ -1,32 +1,21 @@
 // shlexquote.nv — a word a shell reads back as the word it was.
 //
-// ONE QUOTING STRATEGY, AND IT IS THE BORING ONE
-//
 // A word that needs quoting is wrapped in single quotes, and every
-// single quote inside it is written `'\''` — close the string, an
-// escaped quote, open it again.  That is what Python's `shlex.quote`
-// and the Rust crate `shlex` both do, and the reason is that inside a
-// single-quoted string the Shell Command Language gives NO character a
-// special meaning at all (section 2.2.2).  There is nothing to get
-// wrong: no escape to forget, no list of metacharacters to keep up to
-// date as shells grow new ones, and no locale in which a byte becomes
-// special.
+// single quote inside it is written `'\''`: close the string, an
+// escaped quote, open it again.  Inside a single-quoted string the
+// Shell Command Language gives no character a special meaning
+// (section 2.2.2), so nothing else needs escaping and no list of
+// metacharacters has to be kept up to date.  Python's `shlex.quote`
+// uses the same strategy and writes the inner quote as `'"'"'`.
 //
-// A double-quoted strategy would have to escape `$`, a backtick, `"`
-// and `\`, and a strategy that escaped each metacharacter with a
-// backslash would have to know every one of them.  Both are a list
-// somebody has to maintain against every shell in existence.  This is
-// not.
-//
-// WHAT QUOTING DOES NOT PROTECT AGAINST
+// A word needs no quoting when every byte is an ASCII letter, a digit,
+// or one of `@%+=:,./-_`.  That is Python's set.  Every other byte,
+// including every byte of a multi-byte character, is quoted.
 //
 // Quoting makes a string one word.  It does not make that word
-// harmless.  `quote("-rf")` is `-rf`, which is a perfectly quoted
-// argument that still means `-rf` to the program receiving it, and
-// `quote("--output=/etc/passwd")` is the same story.  `is_option_like`
-// is the function that says so; a caller passing a file name from
-// somewhere else into a command line checks it and prefixes `./`, the
-// way every careful shell script does.
+// harmless: `quote("-rf")` is `-rf`, which still means `-rf` to the
+// program receiving it.  `is_option_like` says so, and the caller
+// prefixes `./` or puts `--` before the operands.
 
 use shlexerror
 
@@ -49,23 +38,34 @@ use shlexerror
 //         Err(fault) => println(fault.message())
 // ```
 pub fn quote(word: Str) -> Result<Str, shlexerror.ShlexFault> []
-    todo("shlex-nv.shlexquote.quote")
+    let nul = first_nul(word)
+    if nul >= 0
+        return Err(ShlexNulByte(nul))
+    if not needs_quoting(word)
+        return Ok(word)
+    Ok("'" + str.replace(word, "'", "'\\''") + "'")
 
-// The same word, appended to a buffer the caller owns.
+// The same word, appended to a buffer the caller owns, answering the
+// number of bytes appended.
 //
-// For a caller assembling a long command line: the buffer is reused
-// and no intermediate string is built per word.
+// For a caller assembling a long command line in one buffer.  A word
+// that is refused appends nothing.
 //
 // ```novo
 // use shlexquote
 //
 // fn main() [io]
-//     match shlexquote.quote_into([], "my files")
-//         Ok(buffer) => println("${list.len(buffer)} byte(s)")
+//     var buffer: [u8] = []
+//     match shlexquote.quote_into(buffer, "my files")
+//         Ok(added)  => println("${added} byte(s), ${list.len(buffer)} in the buffer")
 //         Err(fault) => println(fault.message())
 // ```
-pub fn quote_into(out: [u8], word: Str) -> Result<[u8], shlexerror.ShlexFault> []
-    todo("shlex-nv.shlexquote.quote_into")
+pub fn quote_into(var out: [u8], word: Str) -> Result<Int, shlexerror.ShlexFault> []
+    let quoted = quote(word)!
+    let n = str.len(quoted)
+    for i in 0..n
+        list.push(out, str.byte_at_or(quoted, i, 0))
+    Ok(n)
 
 // A command line from a list of words, each quoted, joined with single
 // spaces.
@@ -83,19 +83,20 @@ pub fn quote_into(out: [u8], word: Str) -> Result<[u8], shlexerror.ShlexFault> [
 //         Err(fault) => println(fault.message())
 // ```
 pub fn join(words: [Str]) -> Result<Str, shlexerror.ShlexFault> []
-    todo("shlex-nv.shlexquote.join")
+    var quoted: [Str] = []
+    for word in words
+        list.push(quoted, quote(word)!)
+    Ok(str.join(quoted, " "))
 
 // Whether a word would change meaning if it were written into a
 // command line as it stands.
 //
-// True for a word holding a blank, a quote, a backslash, a shell
-// metacharacter, or a byte below a space — and for the empty string,
-// which would vanish.  False for the words a shell would pass through:
-// letters, digits, and the handful of punctuation characters that mean
-// nothing to it.
+// True for the empty string, which would vanish, and for a word holding
+// any byte other than an ASCII letter, a digit or one of `@%+=:,./-_`.
+// False for the words a shell passes through as they stand.
 //
-// `quote` calls this and returns the word untouched when it is false,
-// which is why an ordinary command line comes back readable.
+// `quote` returns the word untouched when this is false, so an ordinary
+// command line comes back readable.
 //
 // ```novo
 // use shlexquote
@@ -105,7 +106,13 @@ pub fn join(words: [Str]) -> Result<Str, shlexerror.ShlexFault> []
 //     println("${shlexquote.needs_quoting("/tmp/a.txt")}")
 // ```
 pub fn needs_quoting(word: Str) -> Bool []
-    todo("shlex-nv.shlexquote.needs_quoting")
+    let n = str.len(word)
+    if n == 0
+        return true
+    for i in 0..n
+        if not is_safe(str.byte_at_or(word, i, 0))
+            return true
+    false
 
 // Whether a word would be read as an option by the program it is
 // passed to.
@@ -125,7 +132,7 @@ pub fn needs_quoting(word: Str) -> Bool []
 //     println("${shlexquote.is_option_like("./-rf")}")
 // ```
 pub fn is_option_like(word: Str) -> Bool []
-    todo("shlex-nv.shlexquote.is_option_like")
+    str.starts_with(word, "-")
 
 // The offset of the first NUL byte in a word, or `-1`.
 //
@@ -139,4 +146,14 @@ pub fn is_option_like(word: Str) -> Bool []
 //     println("${shlexquote.first_nul("plain text")}")
 // ```
 pub fn first_nul(word: Str) -> Int []
-    todo("shlex-nv.shlexquote.first_nul")
+    for i in 0..str.len(word)
+        if str.byte_at_or(word, i, 1) == 0
+            return i
+    0 - 1
+
+// Whether a byte means nothing to a shell anywhere in a word: an ASCII
+// letter, a digit, or one of `@%+=:,./-_`.
+fn is_safe(b: Int) -> Bool
+    if b >= 'a' and b <= 'z' or b >= 'A' and b <= 'Z' or b >= '0' and b <= '9'
+        return true
+    b == '@' or b == '%' or b == '+' or b == '=' or b == ':' or b == ',' or b == '.' or b == '/' or b == '-' or b == '_'

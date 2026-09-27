@@ -1,10 +1,5 @@
 // shlexquote_tests.nv — the round trip, and the thing quoting does not
 // do.
-//
-// RED ON PURPOSE: every assertion reaches `not implemented:
-// shlex-nv.shlexquote.<fn>`.  What is asserted is that a word survives
-// being quoted and split again, that an ordinary word is left alone,
-// and that a quoted option is still an option.
 
 use std.test
 use shlexquote
@@ -84,10 +79,27 @@ fn test_join_and_split_are_inverses() [io]
 fn test_a_word_can_be_appended_to_a_buffer_the_caller_owns() [io]
     // For a caller assembling a long command line without building an
     // intermediate string per word.
-    test.case("the buffer grows by the quoted word")
-    match shlexquote.quote_into([], "my files")
-        Ok(buffer) => test.assert(list.len(buffer) == 10)
+    var buffer: [u8] = []
+
+    test.case("the buffer grows by the quoted word, and the count says by how much")
+    match shlexquote.quote_into(buffer, "my files")
+        Ok(added)  =>
+            test.assert(added == 10)
+            test.assert(list.len(buffer) == 10)
+            test.assert(buffer[0] == '\'')
         Err(fault) => test.fail(fault.message())
+
+    test.case("a second word is appended after the first")
+    match shlexquote.quote_into(buffer, "x")
+        Ok(added)  =>
+            test.assert(added == 1)
+            test.assert(list.len(buffer) == 11)
+        Err(fault) => test.fail(fault.message())
+
+    test.case("and a refused word appends nothing")
+    match shlexquote.quote_into(buffer, "a\u{0}b")
+        Ok(_)      => test.fail("no shell argument can hold a NUL")
+        Err(fault) => test.assert(list.len(buffer) == 11)
 
 @test
 fn test_a_nul_byte_is_refused_because_no_shell_can_carry_one() [io]

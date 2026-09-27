@@ -5,6 +5,32 @@ All notable changes to shlex-nv are recorded here. The format is
 package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 with the pre-1.0 rule that a breaking change bumps the MINOR number.
 
+## [0.1.0] — 2026-09-27
+
+The first implementation of the interface published as 0.0.1.
+
+### Changed
+
+- `shlexquote.quote_into` takes its buffer as a `var` parameter and
+  answers the number of bytes it appended, as `Result<Int, ShlexFault>`.
+  In 0.0.1 it took a plain `[u8]` and answered a `[u8]`.  A plain list
+  parameter is read-only, so the function could not append to the
+  caller's buffer and would have answered a copy.  A caller passes a
+  `var` list, or a new one, and reads the buffer it passed.
+- A blank is a space, a tab or a newline everywhere in the
+  documentation.  0.0.1 said "a space or a tab" in one place and named
+  the newline in another.
+- The documentation said `$'a b'` was two words under POSIX.  It is one
+  word, `$a b`; bash reads it as `a b`.  The form is refused as before.
+
+### Added
+
+- `tests/differential_tests.nv`, written by `tools/differential.py`
+  from Python's `shlex.split` and `shlex.quote` over seeded lines and
+  words.
+- `tests/coverage.sh`, which merges the suites' line coverage over
+  `src/`.
+
 ## [0.0.1] — 2026-09-17
 
 **The interface, published before anyone implements it.** Every public

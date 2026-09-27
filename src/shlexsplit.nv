@@ -1,11 +1,8 @@
 // shlexsplit.nv — a command line into words, by the Shell Command
 // Language's rules and no others.
 //
-// WHAT THE RULES ARE
-//
 // POSIX.1-2017, Shell Command Language, section 2.2 defines quoting
-// with four characters and section 2.3 delimits words with blanks.
-// That is the whole of it:
+// with four characters, and section 2.3 delimits words with blanks:
 //
 //   \       the next character is literal.  At the end of a line it is
 //           a line continuation and both characters disappear.
@@ -16,25 +13,20 @@
 //           newline.
 //   #       when it begins a word, the rest of the line is a comment.
 //
+// The blanks are space, tab and newline, the default value of `IFS`.
 // Everything else is an ordinary character, including `$`, a backtick,
 // `~`, `*` and `?`.
 //
-// SPLITTING IS NOT EXPANDING, AND THAT IS THE DIVIDING LINE
-//
 // A shell splits a line into words and then expands them: it
-// substitutes parameters, runs command substitutions, expands a tilde
-// into a home directory and a glob into file names.  Every one of
-// those reads something — the environment, a process, a directory —
-// and this package reads nothing.
-//
-// So `echo $HOME` splits into `echo` and `$HOME`, with the dollar sign
-// as a character.  That is exactly what a POSIX shell's word splitting
-// produces, before the expansion step that this package does not have.
-// `would_expand` is how a caller finds out that a word it is holding
-// would mean more to a shell than it means here — which is the
-// question behind "is it safe to pass this to `sh -c`", and the answer
-// is almost always no.
+// substitutes parameters, runs command substitutions, and expands a
+// tilde into a home directory and a glob into file names.  Each of
+// those reads the environment, a process or a directory, and this
+// module reads nothing.  So `echo $HOME` splits into `echo` and
+// `$HOME`, which is what a POSIX shell's splitting produces before its
+// expansion step.  `would_expand` tells a caller whether a word would
+// mean more to a shell than it means here.
 
+use shlexbash
 use shlexerror
 
 // One word, with where it came from.
@@ -58,10 +50,9 @@ pub struct ShlexWord
     // quote.  An editor highlighting the word a cursor is in needs
     // both.
     end: Int
-    // Whether any part of the word was quoted or escaped.  A word that
-    // was quoted is a word the shell would not have expanded, and a
-    // caller deciding whether a user meant a glob or a file called
-    // `*` is asking exactly this.
+    // Whether any part of the word was quoted or escaped.  A quoted
+    // part is one a shell would not have expanded, which is how a
+    // caller tells a glob from a file called `*`.
     quoted: Bool
 
 // What the splitter treats as a comment.
@@ -74,10 +65,9 @@ pub struct ShlexWord
 // ```
 pub struct ShlexOptions
     // Whether a `#` beginning a word starts a comment that runs to the
-    // end of the line.  Off by default: a command line a user typed
-    // into a prompt has no comments, and a `#` in it is a character in
-    // a file name more often than not.  A configuration file that
-    // holds command lines turns it on.
+    // next newline.  Off by default: a command line typed at a prompt
+    // has no comments, and a `#` in it is usually a character in a file
+    // name.  A configuration file that holds command lines turns it on.
     comments: Bool
 
 // The defaults: no comments.
@@ -89,7 +79,7 @@ pub struct ShlexOptions
 //     println("${shlexsplit.options().comments}")
 // ```
 pub fn options() -> ShlexOptions []
-    todo("shlex-nv.shlexsplit.options")
+    ShlexOptions { comments: false }
 
 // The same options with `#` starting a comment.
 //
@@ -100,12 +90,14 @@ pub fn options() -> ShlexOptions []
 //     println("${shlexsplit.with_comments(shlexsplit.options()).comments}")
 // ```
 pub fn with_comments(o: ShlexOptions) -> ShlexOptions []
-    todo("shlex-nv.shlexsplit.with_comments")
+    ShlexOptions { comments: true }
 
 // A line into words, quoting removed.
 //
-// The call almost every caller wants.  A line holding a bash-only form
-// is refused rather than split by the wrong rules — see `shlexbash`.
+// The call almost every caller wants.  A line that ends inside a quote
+// or with a dangling backslash is refused as incomplete.  A finished
+// line holding a bash-only form is refused rather than split by the
+// wrong rules, as `shlexbash` describes.
 //
 // ```novo
 // use shlexsplit
@@ -116,7 +108,7 @@ pub fn with_comments(o: ShlexOptions) -> ShlexOptions []
 //         Err(fault) => println(fault.message())
 // ```
 pub fn split(line: Str) -> Result<[Str], shlexerror.ShlexFault> []
-    todo("shlex-nv.shlexsplit.split")
+    split_with(line, options())
 
 // The same, under options.
 //
@@ -130,7 +122,11 @@ pub fn split(line: Str) -> Result<[Str], shlexerror.ShlexFault> []
 //         Err(fault) => println(fault.message())
 // ```
 pub fn split_with(line: Str, o: ShlexOptions) -> Result<[Str], shlexerror.ShlexFault> []
-    todo("shlex-nv.shlexsplit.split_with")
+    let found = words(line, o)!
+    var texts: [Str] = []
+    for w in found
+        list.push(texts, w.text)
+    Ok(texts)
 
 // The words with their offsets and whether each was quoted.
 //
@@ -147,7 +143,10 @@ pub fn split_with(line: Str, o: ShlexOptions) -> Result<[Str], shlexerror.ShlexF
 //         Err(fault) => println(fault.message())
 // ```
 pub fn words(line: Str, o: ShlexOptions) -> Result<[ShlexWord], shlexerror.ShlexFault> []
-    todo("shlex-nv.shlexsplit.words")
+    let found = scan(line, o.comments, 0)!
+    match shlexbash.scan(line, o.comments)
+        Some(bash) => Err(ShlexBashOnly(bash.form, bash.at))
+        None       => Ok(found)
 
 // Whether a line is finished, so that splitting it would not answer an
 // incomplete fault.
@@ -166,12 +165,16 @@ pub fn words(line: Str, o: ShlexOptions) -> Result<[ShlexWord], shlexerror.Shlex
 //     println("${shlexsplit.is_complete("echo hi")}")
 // ```
 pub fn is_complete(line: Str) -> Bool []
-    todo("shlex-nv.shlexsplit.is_complete")
+    match scan(line, false, 0)
+        Ok(_)      => true
+        Err(fault) => not shlexerror.is_incomplete(fault)
 
 // The first word of a line, or `None` when it has none.
 //
 // The program name, without splitting the rest.  A launcher deciding
-// which handler to use, and a history search, both stop here.
+// which handler to use, and a history search, both stop here.  `None`
+// also answers a line whose first word is unfinished or holds a
+// bash-only form, since that word is not known.
 //
 // ```novo
 // use shlexsplit
@@ -182,19 +185,21 @@ pub fn is_complete(line: Str) -> Bool []
 //         None          => println("an empty line")
 // ```
 pub fn first_word(line: Str) -> ?Str []
-    todo("shlex-nv.shlexsplit.first_word")
+    match scan(line, false, 1)
+        Ok(found) => first_if_posix(line, found)
+        Err(_)    => None
 
 // Whether a word would mean more to a shell than it means here.
 //
-// True when the word holds an unquoted `$`, a backtick, a `*`, a `?`,
-// a `[`, or begins with a `~`.  Every one of those is expanded by a
-// shell after the splitting this package does, so a word that answers
-// true is a word whose meaning changes the moment it reaches one.
+// The word is read as a shell would read it in a command line, quotes
+// included.  True when it begins with an unquoted `~`, holds an
+// unquoted `*`, `?` or `[`, or holds a `$` or a backtick outside single
+// quotes, since a shell expands those inside double quotes too.  A
+// shell expands each of them after the splitting this package does.
 //
-// The question behind "may I pass this to a shell": a caller building
-// a command line for `sh -c` uses `shlexquote.quote` and does not need
-// to ask, and a caller that has a word from somewhere else and wants
-// to know whether it is inert asks this.
+// A caller building a command line for `sh -c` uses
+// `shlexquote.quote` and does not need to ask.  A caller holding a word
+// from somewhere else asks this to learn whether it is inert.
 //
 // ```novo
 // use shlexsplit
@@ -204,14 +209,34 @@ pub fn first_word(line: Str) -> ?Str []
 //     println("${shlexsplit.would_expand("/home/ada")}")
 // ```
 pub fn would_expand(word: Str) -> Bool []
-    todo("shlex-nv.shlexsplit.would_expand")
+    if str.byte_at_or(word, 0, 0) == '~'
+        return true
+    let n = str.len(word)
+    var i = 0
+    for _ in 0..n
+        if i >= n
+            break
+        let c = str.byte_at_or(word, i, 0)
+        if c == '$' or c == '`' or c == '*' or c == '?' or c == '['
+            return true
+        if c == '\\'
+            i = i + 2
+        else if c == '\''
+            i = (str.index_from(word, "'", i + 1) ?? n) + 1
+        else if c == '"'
+            if double_expands(word, i)
+                return true
+            i = double_close(word, i)
+        else
+            i = i + 1
+    false
 
 // Where a comment begins in a line, or `-1`.
 //
-// The offset of a `#` that begins a word, found under the same rules
-// the splitter uses — so a `#` inside quotes, or in the middle of a
-// word, is not one.  A configuration reader that wants to keep the
-// comment rather than drop it needs the position.
+// The offset of the first `#` that begins a word, found under the same
+// rules the splitter uses, so a `#` inside quotes or in the middle of a
+// word is not one.  A configuration reader that keeps the comment
+// rather than dropping it needs the position.
 //
 // ```novo
 // use shlexsplit
@@ -221,4 +246,173 @@ pub fn would_expand(word: Str) -> Bool []
 //     println("${shlexsplit.comment_at("grep '#' file")}")
 // ```
 pub fn comment_at(line: Str) -> Int []
-    todo("shlex-nv.shlexsplit.comment_at")
+    let n = str.len(line)
+    var i = 0
+    var word_start = true
+    for _ in 0..n
+        if i >= n
+            break
+        let c = str.byte_at_or(line, i, 0)
+        if is_blank(c)
+            word_start = true
+            i = i + 1
+        else if c == '\\' and str.byte_at_or(line, i + 1, 0) == '\n'
+            i = i + 2
+        else if c == '#' and word_start
+            return i
+        else
+            word_start = false
+            if c == '\\'
+                i = i + 2
+            else if c == '\''
+                i = (str.index_from(line, "'", i + 1) ?? n) + 1
+            else if c == '"'
+                i = double_close(line, i)
+            else
+                i = i + 1
+    0 - 1
+
+fn is_blank(c: Int) -> Bool
+    c == ' ' or c == '\t' or c == '\n'
+
+// The words of `line`, stopping after `limit` of them when `limit` is
+// above zero.  Quoting is removed and nothing is checked for bash-only
+// forms.
+fn scan(line: Str, comments: Bool, limit: Int) -> Result<[ShlexWord], shlexerror.ShlexFault>
+    let n = str.len(line)
+    var found: [ShlexWord] = []
+    var i = 0
+    var in_word = false
+    var start = 0
+    var text = ""
+    var quoted = false
+    for _ in 0..n
+        if i >= n
+            break
+        let c = str.byte_at_or(line, i, 0)
+        let d = str.byte_at_or(line, i + 1, 0)
+        if not in_word
+            if is_blank(c)
+                i = i + 1
+                continue
+            if c == '\\' and d == '\n'
+                i = i + 2
+                continue
+            if comments and c == '#'
+                i = str.index_from(line, "\n", i) ?? n
+                continue
+            in_word = true
+            start = i
+            text = ""
+            quoted = false
+        if is_blank(c)
+            list.push(found, ShlexWord { text: text, start: start, end: i, quoted: quoted })
+            in_word = false
+            if limit > 0 and list.len(found) >= limit
+                return Ok(found)
+            i = i + 1
+        else if c == '\\'
+            if i + 1 >= n
+                return Err(ShlexDanglingEscape(i))
+            if d != '\n'
+                text = text + str.slice(line, i + 1, i + 2)
+                quoted = true
+            i = i + 2
+        else if c == '\''
+            let close = str.index_from(line, "'", i + 1) ?? 0 - 1
+            if close < 0
+                return Err(ShlexUnterminatedSingle(i))
+            text = text + str.slice(line, i + 1, close)
+            quoted = true
+            i = close + 1
+        else if c == '"'
+            let (body, next) = double_body(line, i)!
+            text = text + body
+            quoted = true
+            i = next
+        else
+            let run = ordinary_end(line, i)
+            text = text + str.slice(line, i, run)
+            i = run
+    if in_word
+        list.push(found, ShlexWord { text: text, start: start, end: n, quoted: quoted })
+    Ok(found)
+
+// The offset of the first byte at or after `i` that is a blank or one
+// of the three quoting characters.
+fn ordinary_end(line: Str, i: Int) -> Int
+    let n = str.len(line)
+    for j in i..n
+        let c = str.byte_at_or(line, j, 0)
+        if is_blank(c) or c == '\\' or c == '\'' or c == '"'
+            return j
+    n
+
+// The text of the double-quoted string opening at `open`, with its
+// escapes removed, and the offset just past its closing quote.
+//
+// Inside double quotes a backslash escapes only `$`, a backtick, `"`,
+// `\` and a newline, and before a newline both characters disappear
+// (section 2.2.3).  Before anything else the backslash is kept.
+fn double_body(line: Str, open: Int) -> Result<(Str, Int), shlexerror.ShlexFault>
+    let n = str.len(line)
+    var text = ""
+    var run = open + 1
+    var i = open + 1
+    for _ in 0..n
+        if i >= n
+            break
+        let c = str.byte_at_or(line, i, 0)
+        if c == '"'
+            return Ok((text + str.slice(line, run, i), i + 1))
+        if c == '\\'
+            let d = str.byte_at_or(line, i + 1, 0)
+            if d == '\n'
+                text = text + str.slice(line, run, i)
+                i = i + 2
+                run = i
+                continue
+            if d == '$' or d == '`' or d == '"' or d == '\\'
+                text = text + str.slice(line, run, i) + str.slice(line, i + 1, i + 2)
+                i = i + 2
+                run = i
+                continue
+        i = i + 1
+    Err(ShlexUnterminatedDouble(open))
+
+// The offset just past the double-quoted string opening at `open`, or
+// the length of `line` when it is never closed.
+fn double_close(line: Str, open: Int) -> Int
+    match double_body(line, open)
+        Ok((_, next)) => next
+        Err(_)        => str.len(line)
+
+// Whether the double-quoted string opening at `open` holds a `$` or a
+// backtick that no backslash escapes.
+fn double_expands(line: Str, open: Int) -> Bool
+    let end = double_close(line, open)
+    var i = open + 1
+    for _ in 0..end
+        if i >= end
+            break
+        let c = str.byte_at_or(line, i, 0)
+        if c == '$' or c == '`'
+            return true
+        if c == '\\'
+            i = i + 2
+        else
+            i = i + 1
+    false
+
+// The first of `found` as the line's first word, unless it is empty or
+// a bash-only form starts before that word ends.
+fn first_if_posix(line: Str, found: [ShlexWord]) -> ?Str
+    if list.len(found) == 0
+        return None
+    let first = found[0]
+    let bash_at = match shlexbash.scan(line, false)
+        Some(bash) => bash.at
+        None       => str.len(line)
+    if bash_at < first.end
+        return None
+    Some(first.text)
