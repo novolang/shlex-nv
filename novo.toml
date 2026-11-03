@@ -1,6 +1,6 @@
 [package]
 name        = "shlex-nv"
-version     = "0.1.0"
+version     = "0.1.1"
 description = "POSIX shell words: splitting a command line by the quoting rules of the Shell Command Language — backslash, single quotes, double quotes and comments — quoting a word so a shell reads it back unchanged, joining a command line, and the bash-only forms named and refused rather than split by the wrong rules."
 license     = "Apache-2.0"
 
@@ -22,7 +22,7 @@ category    = "tooling"
 tags        = ["shlex", "shell", "posix", "quoting", "command-line", "argv", "split", "tooling"]
 repository  = "https://github.com/novolang/shlex-nv"
 maintainers = ["novo-lang"]
-novo        = ">= 0.13.0"
+novo        = ">= 0.23.0"
 
 # A library: no `main`, so `novo pkg build` type-checks and
 # effect-checks every module under `src/` and writes no binary.
